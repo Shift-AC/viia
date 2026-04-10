@@ -12,6 +12,16 @@ Suppose you have a series of image files that represent a storyline, it is often
 
 Of course, in addition to slideshows, `viia` also supports anything that a basic image viewer would do, and a little more: resizing animated images.
 
+## Build/Usage
+
+`viia` is originally built as a Windows program, but since it is using cross-platform GUI/TUI frameworks, theoretically it is also possible to build it on other platforms --- Linux/x86_64 seems to be working. No matter what platform you are on, you may build `viia` with: 
+
+```
+cargo build --release
+```
+
+The `viia` project mainly provides two programs, `viia` and `viiaw`. `viia` is the main image viewer program that supports all the UI modes, while `viiaw` is a specific fork of `viia`'s GUI mode, which does not associate itself with a terminal upon startup. If you would use `viia` in your terminal (either use the TUI directly or start a GUI window) or need the debug messages, use the `viia` program. If you are GUI-native and expect something like other image viewer applications, use `viiaw`.
+
 ## Basic idea
 
 The `viia` program treats each image file as an animation (static images are simply animations with only one frame), and animations could be concatenated together to form a larger animation. In this definition, Display of every single image is just like playing a slideshow. `viia` constructs an image list according to the user input, applies parameters from either the user or some presets to control the timing of each image in each slideshow, and plays them accordingly.
