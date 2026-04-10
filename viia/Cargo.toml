@@ -45,5 +45,6 @@ chrono = "0.4"
 embed-resource = "3.0.8"
 
 [features]
+default = ["gui"]
 gui = ["dep:viia-gui"]
 

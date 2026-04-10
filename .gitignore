@@ -1,3 +1,5 @@
 /target
 /temp
 /agents-test
+*.zip
+*.tar.gz
