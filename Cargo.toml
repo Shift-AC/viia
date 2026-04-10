@@ -3,8 +3,7 @@ members = [
     "viia",
     "viia-core",
     "viia-tui",
-    "viia-gui",
-    "agents-test/windows_subsystem_test"
+    "viia-gui"
 ]
 default-members = [
     "viia",
