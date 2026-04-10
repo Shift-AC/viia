@@ -2,7 +2,7 @@
 
 ![logo](logo/logo.png)
 
-A minimal TUI (based on `ratatui`)/GUI (based on `Tauri`) image viewerprogram that provides complete and customizable support of **v**iewing **i**mages **i**n **a**nimations.
+A minimal TUI (based on `ratatui`)/GUI (based on `Tauri`) image viewer program that provides complete and customizable support of **v**iewing **i**mages **i**n **a**nimations.
 
 ## Why you need this (In other words, why I built this?)
 
