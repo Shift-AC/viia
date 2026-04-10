@@ -1,0 +1,1434 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>viia</title>
+    <style>
+      body, html {
+        margin: 0;
+        padding: 0;
+        background-color: transparent; /* Allow Tauri transparent window */
+        color: white;
+        font-family: sans-serif;
+      }
+      body {
+        /* Let body grow normally with content to generate natural window scrollbars */
+        min-width: 100vw;
+        min-height: 100vh;
+        display: flex;
+        background-color: #000; /* Main app background */
+      }
+      #viewer {
+        margin: auto;
+        cursor: grab;
+        user-select: none;
+        -webkit-user-drag: none;
+      }
+      #viewer:active {
+        cursor: grabbing;
+      }
+      #window-drag-bar {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 24px;
+        background: rgba(0, 0, 0, 0.5);
+        z-index: 2000;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        transition: background 0.2s;
+        /* Tells Tauri this element should drag the window */
+        data-tauri-drag-region: true;
+        -webkit-app-region: drag;
+      }
+      #window-drag-bar:hover {
+        background: rgba(0, 0, 0, 0.8);
+      }
+      #window-drag-bar::after {
+        content: '';
+        width: 100px;
+        height: 4px;
+        background: rgba(255, 255, 255, 0.3);
+        border-radius: 2px;
+        pointer-events: none; /* Make sure clicks pass through to the drag region */
+      }
+      #overlay {
+        position: fixed;
+        bottom: 10px;
+        left: 50%;
+        transform: translateX(-50%);
+        background: rgba(0,0,0,0.7);
+        border-radius: 8px;
+        pointer-events: auto;
+        z-index: 2001;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+        -webkit-app-region: no-drag;
+      }
+      #overlay-main {
+        display: flex;
+        flex-direction: column;
+        flex-grow: 1;
+      }
+      #overlay.animating {
+        transition: width 0.3s ease, height 0.3s ease, left 0.3s ease, top 0.3s ease, bottom 0.3s ease, transform 0.3s ease;
+      }
+      #overlay-header {
+        position: relative;
+        width: 100%;
+        display: flex;
+        flex-direction: column;
+      }
+      #overlay-drag-bar {
+        width: 100%;
+        height: 16px;
+        background: rgba(255, 255, 255, 0.1);
+        cursor: grab;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+      }
+      #overlay-drag-bar:active {
+        cursor: grabbing;
+      }
+      #overlay-drag-bar::after {
+        content: '';
+        width: 40px;
+        height: 4px;
+        background: rgba(255, 255, 255, 0.3);
+        border-radius: 2px;
+      }
+      #overlay-body {
+        display: flex;
+        flex-direction: row;
+        width: 100%;
+      }
+      #transparency-drag-bar {
+        width: 14px;
+        background: rgba(255, 255, 255, 0.05);
+        cursor: ns-resize;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        border-right: 1px solid rgba(255, 255, 255, 0.1);
+        transition: background 0.2s;
+        padding: 8px 0;
+        box-sizing: border-box;
+      }
+      #transparency-drag-bar:hover {
+        background: rgba(255, 255, 255, 0.15);
+      }
+      #transparency-drag-bar:active {
+        cursor: ns-resize;
+        background: rgba(255, 255, 255, 0.2);
+      }
+      .slider-track {
+        width: 4px;
+        height: 100%;
+        min-height: 40px;
+        background: rgba(0, 0, 0, 0.5);
+        border-radius: 2px;
+        position: relative;
+        overflow: hidden;
+        display: flex;
+        flex-direction: column-reverse;
+        pointer-events: none;
+      }
+      .slider-fill {
+        width: 100%;
+        height: 70%;
+        background: rgba(255, 255, 255, 0.8);
+      }
+      #overlay-content {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 16px 12px;
+        /* Ensure content displays nicely during width transition */
+        white-space: nowrap;
+      }
+      #status-container {
+        font-size: 14px;
+        white-space: nowrap;
+        display: flex;
+        align-items: center;
+        gap: 4px;
+      }
+      #status-msg, #mode-text {
+        pointer-events: none;
+      }
+      #scale-input {
+        min-width: 3ch;
+        box-sizing: content-box;
+        background: rgba(255,255,255,0.1);
+        color: white;
+        border: 1px solid transparent;
+        border-radius: 4px;
+        text-align: right;
+        padding: 2px;
+        font-size: 14px;
+        outline: none;
+        font-family: inherit;
+        transition: background 0.2s, border-color 0.2s;
+      }
+      #scale-input:hover {
+        background: rgba(255,255,255,0.2);
+      }
+      #scale-input:focus {
+        background: rgba(0,0,0,0.5);
+        border-color: #555;
+      }
+      #button-row {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
+      #control-buttons {
+        display: flex;
+        gap: 8px;
+      }
+      .control-btn {
+        background: none;
+        border: none;
+        color: white;
+        cursor: pointer;
+        padding: 4px;
+        border-radius: 4px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        transition: background 0.2s;
+      }
+      .control-btn:hover {
+        background: rgba(255, 255, 255, 0.2);
+      }
+      .control-btn svg {
+        width: 24px;
+        height: 24px;
+        fill: currentColor;
+      }
+      #window-buttons {
+        display: flex;
+        gap: 8px;
+        border-left: 1px solid rgba(255, 255, 255, 0.2);
+        padding-left: 12px;
+      }
+      #command-prompt {
+        position: fixed;
+        bottom: 0;
+        left: 0;
+        width: 100%;
+        background: rgba(30, 30, 30, 0.9);
+        border-top: 1px solid #555;
+        padding: 5px 10px;
+        display: none;
+        box-sizing: border-box;
+        z-index: 1001;
+      }
+      #command-input {
+        width: 100%;
+        background: transparent;
+        border: none;
+        color: white;
+        font-family: monospace;
+        font-size: 14px;
+        outline: none;
+      }
+
+      /* Custom Scrollbar Styling */
+      ::-webkit-scrollbar {
+        width: 10px;
+        height: 10px;
+      }
+      ::-webkit-scrollbar-track {
+        background: rgba(0, 0, 0, 0.2);
+      }
+      ::-webkit-scrollbar-thumb {
+        background: #444;
+        border-radius: 5px;
+        border: 2px solid #2a2a2a;
+      }
+      ::-webkit-scrollbar-thumb:hover {
+        background: #666;
+      }
+      ::-webkit-scrollbar-corner {
+        background: transparent;
+      }
+
+      /* Help Overlay */
+      #help-overlay-bg {
+        position: fixed;
+        top: 0; left: 0; right: 0; bottom: 0;
+        background: rgba(0, 0, 0, 0.6);
+        backdrop-filter: blur(4px);
+        -webkit-backdrop-filter: blur(4px);
+        z-index: 3000;
+        display: none;
+        justify-content: center;
+        align-items: center;
+      }
+
+      #help-modal {
+        background: rgba(30, 30, 30, 0.95);
+        border: 1px solid #444;
+        border-radius: 8px;
+        width: 66.66vw;
+        height: 66.66vh;
+        display: flex;
+        flex-direction: column;
+        box-shadow: 0 10px 40px rgba(0, 0, 0, 0.7);
+        overflow: hidden;
+      }
+
+      #help-header {
+        padding: 16px 24px;
+        border-bottom: 1px solid #444;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        background: rgba(0, 0, 0, 0.3);
+      }
+
+      #help-header h2 {
+        margin: 0;
+        font-size: 1.25rem;
+        font-weight: normal;
+      }
+
+      #btn-close-help {
+        background: none;
+        border: none;
+        color: #aaa;
+        font-size: 1.5rem;
+        cursor: pointer;
+        line-height: 1;
+        padding: 0;
+        transition: color 0.2s;
+      }
+
+      #btn-close-help:hover {
+        color: white;
+      }
+
+      #help-content {
+        display: flex;
+        flex-direction: row;
+        padding: 24px;
+        gap: 40px;
+        overflow-y: scroll;
+        flex: 1;
+      }
+
+      @media (max-width: 600px) {
+        #help-content {
+          flex-direction: column;
+          gap: 24px;
+        }
+      }
+
+      .help-section {
+        flex: 1;
+      }
+
+      .help-section h3 {
+        margin-top: 0;
+        margin-bottom: 16px;
+        color: #bbb;
+        font-size: 0.9rem;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        border-bottom: 1px solid #333;
+        padding-bottom: 8px;
+      }
+
+      .help-list {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+      }
+
+      .help-item {
+        display: flex;
+        align-items: flex-start;
+        gap: 16px;
+      }
+
+      .help-key {
+        background: #222;
+        border: 1px solid #555;
+        border-radius: 4px;
+        padding: 4px 10px;
+        font-family: monospace;
+        font-size: 0.9rem;
+        color: #569cd6;
+        min-width: 45px;
+        text-align: center;
+        box-shadow: 0 2px 0 #111;
+        flex-shrink: 0;
+      }
+
+      .help-key svg {
+        width: 18px;
+        height: 18px;
+        fill: currentColor;
+        vertical-align: middle;
+      }
+
+      .help-desc {
+        flex: 1;
+        font-size: 0.95rem;
+        line-height: 1.4;
+        color: #ddd;
+        margin-top: 2px;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="window-drag-bar" data-tauri-drag-region></div>
+    <img id="viewer" src="" style="display: none;" />
+    <div id="overlay">
+      <div id="overlay-main">
+        <div id="overlay-header">
+          <div id="overlay-drag-bar" title="Drag to move, double-click to collapse/expand"></div>
+        </div>
+        <div id="overlay-body">
+          <div id="transparency-drag-bar" title="Drag up/down to change transparency">
+            <div class="slider-track">
+              <div id="transparency-fill" class="slider-fill"></div>
+            </div>
+          </div>
+          <div id="overlay-content">
+          <div id="status-container">
+          <span id="status-msg">Loading...</span>
+          <span>|</span>
+          <input type="text" id="scale-input" title="Scale percentage" value="100" />
+          <span>%</span>
+          <span id="mode-text"></span>
+        </div>
+        <div id="button-row">
+          <div id="control-buttons">
+          <button class="control-btn" id="btn-prev" title="Previous Image (Left Arrow)">
+          <svg viewBox="0 0 24 24"><path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/></svg>
+        </button>
+        <button class="control-btn" id="btn-pause" title="Pause/Resume (Space)">
+          <svg id="icon-play" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+          <svg id="icon-pause" viewBox="0 0 24 24" style="display: none;"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
+        </button>
+        <button class="control-btn" id="btn-next" title="Next Image (Right Arrow)">
+          <svg viewBox="0 0 24 24"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg>
+        </button>
+        <button class="control-btn" id="btn-zoom-in" title="Zoom In">
+          <svg viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27A6.471 6.471 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 12.51 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 12.51 14 9.5 14zm2.5-4h-2v2H9v-2H7V9h2V7h1v2h2v1z"/></svg>
+        </button>
+        <button class="control-btn" id="btn-zoom-out" title="Zoom Out">
+          <svg viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27A6.471 6.471 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 12.51 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 12.51 14 9.5 14zM7 9h5v1H7z"/></svg>
+        </button>
+        <button class="control-btn" id="btn-zoom-mode" title="Zoom Mode (Shrink/Fit)">
+          <svg id="icon-zoom-fixed" viewBox="0 0 24 24" style="display: none;">
+            <path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/>
+          </svg>
+          <svg id="icon-zoom-fit" viewBox="0 0 24 24" style="display: none;">
+            <path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/>
+            <path d="M11 8H8v3h1.5V9.5h1.5V8zM16 8h-3v1.5h1.5V11H16V8zM8 16h3v-1.5H9.5V13H8v3zM16 16v-3h-1.5v1.5H13V16h3z"/>
+          </svg>
+          <svg id="icon-zoom-shrink" viewBox="0 0 24 24" style="display: block;">
+            <path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/>
+            <rect x="9" y="9" width="6" height="6" />
+          </svg>
+        </button>
+        <button class="control-btn" id="btn-slideshow" title="Play Slideshow">
+          <svg viewBox="0 0 24 24"><path d="M4 6H2v14c0 1.1.9 2 2 2h14v-2H4V6zm16-4H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-8 12.5v-9l6 4.5-6 4.5z"/></svg>
+        </button>
+        <button class="control-btn" id="btn-cmd" title="Command Prompt (:)">
+          <svg viewBox="0 0 24 24"><path d="M9 4l-2 2 6 6-6 6 2 2 8-8-8-8zm4 14h8v2h-8v-2z"/></svg>
+        </button>
+        <button class="control-btn" id="btn-help" title="Help (h)">
+          <svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 17h-2v-2h2v2zm2.07-7.75l-.9.92C13.45 12.9 13 13.5 13 15h-2v-.5c0-1.1.45-2.1 1.17-2.83l1.24-1.26c.37-.36.59-.86.59-1.41 0-1.1-.9-2-2-2s-2 .9-2 2H8c0-2.21 1.79-4 4-4s4 1.79 4 4c0 .88-.36 1.68-.93 2.25z"/></svg>
+        </button>
+      </div>
+        <div id="window-buttons">
+          <button class="control-btn" id="btn-minimize" title="Minimize">
+            <svg viewBox="0 0 24 24"><path d="M19 13H5v-2h14v2z"/></svg>
+          </button>
+          <button class="control-btn" id="btn-maximize" title="Maximize">
+            <svg id="icon-maximize" viewBox="0 0 24 24"><path d="M19 5H5v14h14V5zm-2 12H7V7h10v10z"/></svg>
+            <svg id="icon-restore" viewBox="0 0 24 24" style="display: none;"><path d="M16 4H4v12h12V4zm-2 10H6V6h8v8zm4-10v2h2v8h-2v2h4V4h-4z"/></svg>
+          </button>
+          <button class="control-btn" id="btn-close" title="Close (q)">
+            <svg viewBox="0 0 24 24"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12 19 6.41z"/></svg>
+          </button>
+        </div>
+        </div>
+        </div>
+      </div>
+    </div>
+    <div id="command-prompt">
+      <input type="text" id="command-input" placeholder=":" />
+    </div>
+
+    <!-- Help Modal Overlay -->
+    <div id="help-overlay-bg">
+      <div id="help-modal">
+          <div id="help-header">
+              <h2>Help</h2>
+              <button id="btn-close-help" title="Close (Esc)">&times;</button>
+          </div>
+          <div id="help-content">
+              <!-- Keyboard Shortcuts Column -->
+              <div class="help-section" style="display: flex; flex-direction: column; height: 100%;">
+                  <h3>GUI Shortcuts</h3>
+                  <div class="help-list" style="flex: 1;">
+                      <div class="help-item">
+                          <span class="help-key">→</span>
+                          <span class="help-desc">Next image</span>
+                      </div>
+                      <div class="help-item">
+                          <span class="help-key">←</span>
+                          <span class="help-desc">Previous image</span>
+                      </div>
+                      <div class="help-item">
+                          <span class="help-key">Space</span>
+                          <span class="help-desc">Pause / Resume slideshow</span>
+                      </div>
+                      <div class="help-item">
+                          <span class="help-key">h</span>
+                          <span class="help-desc">Show this help message</span>
+                      </div>
+                      <div class="help-item">
+                          <span class="help-key">o</span>
+                          <span class="help-desc">Reset overlay position</span>
+                      </div>
+                      <div class="help-item">
+                          <span class="help-key">:</span>
+                          <span class="help-desc">Open command prompt</span>
+                      </div>
+                      <div class="help-item">
+                          <span class="help-key">Esc</span>
+                          <span class="help-desc">Close prompt / help</span>
+                      </div>
+                      <div class="help-item">
+                          <span class="help-key">
+                              <svg viewBox="0 0 24 24" title="Mouse Drag">
+                                  <path d="M12 2c-4.42 0-8 3.58-8 8v4c0 4.42 3.58 8 8 8s8-3.58 8-8v-4c0-4.42-3.58-8-8-8zm-1 2.05v5.95H6V10c0-3.1 2.36-5.67 5-5.95zm2 0c2.64.28 5 2.85 5 5.95v2h-5V4.05zm5 9.95c0 3.31-2.69 6-6 6s-6-2.69-6-6v-2h12v2z"/>
+                                  <path d="M6 10c0-3.1 2.36-5.67 5-5.95v5.95H6z" fill="#fff"/>
+                              </svg>
+                          </span>
+                          <span class="help-desc">Pan zoomed image</span>
+                      </div>
+                      <div class="help-item">
+                          <span class="help-key">
+                              <svg viewBox="0 0 24 24" title="Mouse Wheel">
+                                  <path d="M12 2c-4.42 0-8 3.58-8 8v4c0 4.42 3.58 8 8 8s8-3.58 8-8v-4c0-4.42-3.58-8-8-8zm-1 2.05v5.95H6V10c0-3.1 2.36-5.67 5-5.95zm2 0c2.64.28 5 2.85 5 5.95v2h-5V4.05zm5 9.95c0 3.31-2.69 6-6 6s-6-2.69-6-6v-2h12v2z"/>
+                                  <rect x="11" y="4" width="2" height="4" rx="1" fill="#fff"/>
+                              </svg>
+                          </span>
+                          <span class="help-desc">Zoom in / out</span>
+                      </div>
+                  </div>
+                  <div id="help-version-info" style="margin-top: 16px; color: #888; font-size: 0.85rem; text-align: left; border-top: 1px solid #333; padding-top: 8px;">
+                      <!-- Dynamically populated version info -->
+                  </div>
+              </div>
+  
+              <!-- Terminal Commands Column -->
+              <div class="help-section">
+                  <h3>Terminal Commands</h3>
+                  <div class="help-list" id="help-terminal-commands">
+                      <!-- Dynamically populated from backend help payload -->
+                  </div>
+              </div>
+          </div>
+      </div>
+    </div>
+
+    <script>
+      const { invoke } = window.__TAURI__.core;
+      const { listen } = window.__TAURI__.event;
+
+      async function log(msg) {
+        console.log(msg);
+        try {
+          await invoke('log_to_terminal', { msg });
+        } catch (e) {
+          console.error("Failed to log to terminal:", e);
+        }
+      }
+
+      const viewer = document.getElementById('viewer');
+      const overlay = document.getElementById('overlay');
+      const statusMsg = document.getElementById('status-msg');
+      const scaleInput = document.getElementById('scale-input');
+      const modeText = document.getElementById('mode-text');
+      const commandPrompt = document.getElementById('command-prompt');
+      const commandInput = document.getElementById('command-input');
+      const helpOverlayBg = document.getElementById('help-overlay-bg');
+      const btnCloseHelp = document.getElementById('btn-close-help');
+      const helpTerminalCommands = document.getElementById('help-terminal-commands');
+
+      let currentScale = 1.0;
+      let currentMode = 'shrink'; // Track current zoom mode ('fit', 'shrink', or fixed number)
+      let isDragging = false;
+      let isHelpOpen = false;
+      let startX, startY, scrollLeft, scrollTop;
+
+      let tempZoomScale = null;
+      let lastReceivedZoomMode = null;
+      let currentImagePath = null;
+      let currentStatusMsg = "Loading...";
+      let isBursting = false;
+
+      // Helper to calculate the *real* scale of the image relative to its natural size
+      function getRealScale() {
+        if (!viewer.naturalWidth) return currentScale;
+        const rect = viewer.getBoundingClientRect();
+        // Since we might be scaled via transform, getBoundingClientRect includes transform.
+        // We want the scale relative to natural width.
+        return rect.width / viewer.naturalWidth;
+      }
+
+      function updateOverlay() {
+        let scaleVal = "?";
+        if (viewer.naturalWidth) {
+          const realScale = getRealScale();
+          scaleVal = Math.round(realScale * 100);
+        }
+        
+        let modeStr = currentMode;
+
+        document.getElementById('icon-zoom-fixed').style.display = 'none';
+        document.getElementById('icon-zoom-fit').style.display = 'none';
+        document.getElementById('icon-zoom-shrink').style.display = 'none';
+
+        if (currentMode === 'fit') {
+          document.getElementById('icon-zoom-fit').style.display = 'block';
+        } else if (currentMode === 'shrink') {
+          document.getElementById('icon-zoom-shrink').style.display = 'block';
+        } else {
+          document.getElementById('icon-zoom-fixed').style.display = 'block';
+        }
+
+        statusMsg.innerText = currentStatusMsg;
+        if (document.activeElement !== scaleInput) {
+          scaleInput.value = scaleVal;
+          scaleInput.style.width = Math.max(3, String(scaleVal).length) + 'ch';
+        }
+        modeText.innerText = `(${modeStr})`;
+      }
+
+      viewer.addEventListener('load', () => {
+        if (currentMode === 'fixed' && viewer.naturalWidth) {
+          viewer.style.width = `${viewer.naturalWidth * currentScale}px`;
+          viewer.style.height = `${viewer.naturalHeight * currentScale}px`;
+        }
+        updateOverlay();
+      });
+
+      viewer.addEventListener('error', () => {
+      });
+
+      window.addEventListener('resize', () => {
+        updateOverlay();
+        
+        const rect = overlay.getBoundingClientRect();
+        
+        let currentLeft = overlay.style.left ? parseFloat(overlay.style.left) : rect.left;
+        let currentTop = overlay.style.top ? parseFloat(overlay.style.top) : rect.top;
+        
+        let newLeft = currentLeft;
+        let newTop = currentTop;
+        
+        // Vertical border enforcement (pushing and following)
+        if (newTop + rect.height >= window.innerHeight) {
+          newTop = window.innerHeight - rect.height;
+        }
+        if (newTop <= 0) {
+          newTop = 0;
+        }
+        
+        // Horizontal visibility enforcement
+        let isOffLeft = rect.right <= 0;
+        let isOffRight = rect.left >= window.innerWidth;
+        
+        if (isOffLeft) {
+          newLeft = 0;
+        } else if (isOffRight) {
+          newLeft = window.innerWidth - rect.width;
+        }
+        
+        if (newLeft !== currentLeft || newTop !== currentTop) {
+          if (newLeft !== currentLeft && !overlay.style.left) {
+            overlay.style.transform = 'none';
+            overlay.style.left = newLeft + 'px';
+          } else if (overlay.style.left) {
+            overlay.style.left = newLeft + 'px';
+          }
+          
+          overlay.style.bottom = 'auto';
+          overlay.style.top = newTop + 'px';
+        }
+      });
+
+      scaleInput.addEventListener('input', (e) => {
+        e.target.style.width = Math.max(3, e.target.value.length) + 'ch';
+      });
+
+      scaleInput.addEventListener('keydown', (e) => {
+        e.stopPropagation();
+        if (e.key === 'Enter') {
+          const val = parseInt(e.target.value);
+          if (!isNaN(val) && val > 0) {
+            const scale = val / 100.0;
+            invoke('send_command', { cmd: `z ${scale}` });
+          }
+          e.target.blur();
+        } else if (e.key === 'Escape') {
+          updateOverlay();
+          e.target.blur();
+        }
+      });
+
+      scaleInput.addEventListener('blur', () => {
+        updateOverlay();
+      });
+
+      // Mouse Drag to Pan
+      window.addEventListener('mousedown', (e) => {
+        if (commandPrompt.style.display === 'block') return;
+        if (isHelpOpen) return; // Block background interaction
+        if (e.target === commandInput) return;
+        if (overlay.contains(e.target)) return;
+        
+        const rect = viewer.getBoundingClientRect();
+        // Check if image is strictly larger than the viewport (excluding scrollbars)
+        const canScrollX = Math.round(rect.width) > document.documentElement.clientWidth;
+        const canScrollY = Math.round(rect.height) > document.documentElement.clientHeight;
+
+        // If neither dimension is larger, we shouldn't drag
+        if (!canScrollX && !canScrollY) {
+          return;
+        }
+
+        // Prevent default browser behavior like image dragging
+        e.preventDefault();
+
+        isDragging = true;
+        // Use clientX/Y to track screen-space movement regardless of scroll
+        startX = e.clientX;
+        startY = e.clientY;
+      });
+
+      window.addEventListener('mouseleave', () => {
+        isDragging = false;
+      });
+
+      let isDraggingOverlay = false;
+      let isDraggingTransparency = false;
+      let overlayDragOffsetX, overlayDragOffsetY;
+      let startTransparencyY = 0;
+      let startOpacity = 0.7;
+      let currentOverlayOpacity = 0.7;
+      const dragBar = document.getElementById('overlay-drag-bar');
+      const transparencyDragBar = document.getElementById('transparency-drag-bar');
+
+      transparencyDragBar.addEventListener('mousedown', (e) => {
+        isDraggingTransparency = true;
+        
+        // Allow clicking anywhere on the bar to immediately set transparency
+        const rect = transparencyDragBar.getBoundingClientRect();
+        // Since slider goes bottom to top, clicking near the bottom means lower opacity
+        const clickY = rect.bottom - e.clientY;
+        let newOpacity = clickY / rect.height;
+        newOpacity = Math.max(0.1, Math.min(newOpacity, 1.0));
+        
+        currentOverlayOpacity = newOpacity;
+        overlay.style.background = `rgba(0, 0, 0, ${newOpacity})`;
+        const transparencyFill = document.getElementById('transparency-fill');
+        if (transparencyFill) {
+          transparencyFill.style.height = `${newOpacity * 100}%`;
+        }
+
+        startTransparencyY = e.clientY;
+        startOpacity = currentOverlayOpacity;
+        e.preventDefault();
+        e.stopPropagation();
+      });
+
+      dragBar.addEventListener('mousedown', (e) => {
+        isDraggingOverlay = true;
+        
+        // Disable animation class while dragging
+        overlay.classList.remove('animating');
+        
+        const rect = overlay.getBoundingClientRect();
+        overlayDragOffsetX = e.clientX - rect.left;
+        overlayDragOffsetY = e.clientY - rect.top;
+        
+        // Remove fixed position anchoring so it can be moved freely
+        overlay.style.bottom = 'auto';
+        overlay.style.left = rect.left + 'px';
+        overlay.style.top = rect.top + 'px';
+        overlay.style.transform = 'none';
+        
+        e.preventDefault();
+      });
+
+      window.addEventListener('mouseup', () => {
+        isDraggingOverlay = false;
+        isDraggingTransparency = false;
+        isDragging = false;
+      });
+
+      window.addEventListener('mousemove', (e) => {
+        if (isDraggingTransparency) {
+          e.preventDefault();
+          const rect = transparencyDragBar.getBoundingClientRect();
+          const deltaY = startTransparencyY - e.clientY;
+          
+          let newOpacity = startOpacity + (deltaY / rect.height);
+          
+          // Bound to [0.1, 1.0] so it's never completely invisible
+          newOpacity = Math.max(0.1, Math.min(newOpacity, 1.0));
+          
+          currentOverlayOpacity = newOpacity;
+          overlay.style.background = `rgba(0, 0, 0, ${newOpacity})`;
+          const transparencyFill = document.getElementById('transparency-fill');
+          if (transparencyFill) {
+            transparencyFill.style.height = `${newOpacity * 100}%`;
+          }
+          return;
+        }
+
+        if (isDraggingOverlay) {
+          e.preventDefault();
+          let newLeft = e.clientX - overlayDragOffsetX;
+          let newTop = e.clientY - overlayDragOffsetY;
+          
+          // Constrain to window bounds
+          newLeft = Math.max(0, Math.min(newLeft, window.innerWidth - overlay.offsetWidth));
+          newTop = Math.max(0, Math.min(newTop, window.innerHeight - overlay.offsetHeight));
+          
+          overlay.style.left = newLeft + 'px';
+          overlay.style.top = newTop + 'px';
+          overlay.style.bottom = 'auto';
+          overlay.style.transform = 'none';
+          return;
+        }
+        
+        if (!isDragging) return;
+        e.preventDefault();
+        
+        const x = e.clientX;
+        const y = e.clientY;
+        // The distance moved by the mouse between the last frame and now
+        const walkX = startX - x;
+        const walkY = startY - y;
+        
+        // Update startX/Y so we calculate delta frame-by-frame
+        startX = x;
+        startY = y;
+
+        // Apply scroll delta natively
+        window.scrollBy(walkX, walkY);
+      });
+
+      // Mouse Wheel to Zoom
+      window.addEventListener('wheel', (e) => {
+        if (commandPrompt.style.display === 'block') return;
+        if (isHelpOpen) {
+          // Allow scrolling within the help modal
+          if (document.getElementById('help-content').contains(e.target)) return;
+          e.preventDefault();
+          return;
+        }
+        e.preventDefault();
+
+        const oldRect = viewer.getBoundingClientRect();
+        const oldImageCenterX = oldRect.left + oldRect.width / 2 + window.scrollX;
+        const oldImageCenterY = oldRect.top + oldRect.height / 2 + window.scrollY;
+
+        // 1. Determine current true scale before any new zoom operation
+        if (currentMode === 'fit' || currentMode === 'shrink') {
+          // If we are currently in an auto-layout mode, calculate real scale
+          // and switch to fixed mode to take over zoom manually.
+          currentScale = getRealScale();
+          currentMode = 'fixed';
+        }
+
+        const zoomIntensity = 0.1;
+        const delta = e.deltaY < 0 ? 1 : -1;
+        
+        let newScale = currentScale + (delta * zoomIntensity * currentScale);
+        // Constrain the scale
+        newScale = Math.max(0.01, Math.min(newScale, 50.0));
+        
+        if (newScale !== currentScale) {
+          const clientX = e.clientX;
+          const clientY = e.clientY;
+
+          const dx = (clientX + window.scrollX) - oldImageCenterX;
+          const dy = (clientY + window.scrollY) - oldImageCenterY;
+
+          currentScale = newScale;
+          tempZoomScale = newScale;
+
+          if (viewer.naturalWidth) {
+            viewer.style.width = `${viewer.naturalWidth * currentScale}px`;
+            viewer.style.height = `${viewer.naturalHeight * currentScale}px`;
+          }
+          viewer.style.maxWidth = 'none';
+          viewer.style.maxHeight = 'none';
+          viewer.style.objectFit = 'contain';
+          viewer.style.transform = 'none';
+
+          const newRect = viewer.getBoundingClientRect();
+          const newImageCenterX = newRect.left + newRect.width / 2 + window.scrollX;
+          const newImageCenterY = newRect.top + newRect.height / 2 + window.scrollY;
+
+          const scaleDiff = oldRect.width > 0 ? newRect.width / oldRect.width : 1;
+          
+          const targetMouseX = newImageCenterX + dx * scaleDiff;
+          const targetMouseY = newImageCenterY + dy * scaleDiff;
+
+          window.scrollTo(targetMouseX - clientX, targetMouseY - clientY);
+          updateOverlay();
+        }
+      }, { passive: false });
+
+      function applyZoomMode(mode) {
+        if (!mode) return;
+        
+        // 1. Calculate old center of view in document space
+        const viewCenterX = window.scrollX + window.innerWidth / 2;
+        const viewCenterY = window.scrollY + window.innerHeight / 2;
+        
+        const oldRect = viewer.getBoundingClientRect();
+        // Distance from view center to old image center
+        const oldImageCenterX = oldRect.left + oldRect.width / 2 + window.scrollX;
+        const oldImageCenterY = oldRect.top + oldRect.height / 2 + window.scrollY;
+        
+        const dx = viewCenterX - oldImageCenterX;
+        const dy = viewCenterY - oldImageCenterY;
+        
+        viewer.style.transform = 'none';
+        
+        if (mode === 'fit') {
+          currentMode = 'fit';
+          viewer.style.width = '100%';
+          viewer.style.height = '100%';
+          viewer.style.maxWidth = 'none';
+          viewer.style.maxHeight = 'none';
+          viewer.style.objectFit = 'contain';
+        } else if (mode === 'shrink') {
+          currentMode = 'shrink';
+          viewer.style.width = 'auto';
+          viewer.style.height = 'auto';
+          viewer.style.maxWidth = '100%';
+          viewer.style.maxHeight = '100%';
+          viewer.style.objectFit = 'scale-down';
+        } else {
+          // Fixed scale mode or manual zoom mode
+          currentMode = 'fixed';
+          let parsedMode = parseFloat(mode);
+          if (!isNaN(parsedMode) && parsedMode > 0) {
+            currentScale = parsedMode;
+          }
+          if (viewer.naturalWidth) {
+            viewer.style.width = `${viewer.naturalWidth * currentScale}px`;
+            viewer.style.height = `${viewer.naturalHeight * currentScale}px`;
+          }
+          viewer.style.maxWidth = 'none';
+          viewer.style.maxHeight = 'none';
+          viewer.style.objectFit = 'contain';
+        }
+
+        // Use requestAnimationFrame to let CSS layout pass finish and naturalWidth apply
+        requestAnimationFrame(() => {
+          const newRect = viewer.getBoundingClientRect();
+          const newImageCenterX = newRect.left + newRect.width / 2 + window.scrollX;
+          const newImageCenterY = newRect.top + newRect.height / 2 + window.scrollY;
+
+          const scaleDiff = oldRect.width > 0 ? newRect.width / oldRect.width : 1;
+
+          const targetViewCenterX = newImageCenterX + dx * scaleDiff;
+          const targetViewCenterY = newImageCenterY + dy * scaleDiff;
+
+          window.scrollTo(targetViewCenterX - window.innerWidth / 2, targetViewCenterY - window.innerHeight / 2);
+          updateOverlay();
+        });
+      }
+
+      function closeHelp() {
+        isHelpOpen = false;
+        helpOverlayBg.style.display = 'none';
+      }
+
+      btnCloseHelp.addEventListener('click', closeHelp);
+
+      function parseAndShowHelp(helpText) {
+        helpTerminalCommands.innerHTML = '';
+        const lines = helpText.split('\n');
+        let inCommands = false;
+        let versionLine = "";
+        
+        for (const line of lines) {
+            if (line.startsWith('viia ') && line.includes('build:')) {
+                versionLine = line;
+                continue;
+            }
+            if (line.trim() === 'Commands:') {
+                inCommands = true;
+                continue;
+            }
+            if (inCommands) {
+                if (line.trim() === '') continue;
+                if (!line.startsWith('  ')) {
+                    // end of commands
+                    inCommands = false;
+                    continue;
+                }
+                
+                const trimmed = line.trim();
+                const parts = trimmed.split(/\s{2,}/);
+                if (parts.length >= 2) {
+                    let cmdStr = parts[0];
+                    let descStr = parts.slice(1).join(' ');
+                    
+                    // Skip standard clap "help" command if present
+                    if (cmdStr === 'help' && descStr.includes('Print this message')) continue;
+                    
+                    const item = document.createElement('div');
+                    item.className = 'help-item';
+                    
+                    const keySpan = document.createElement('span');
+                    keySpan.className = 'help-key';
+                    keySpan.textContent = cmdStr;
+                    
+                    const descSpan = document.createElement('span');
+                    descSpan.className = 'help-desc';
+                    descSpan.textContent = descStr;
+                    
+                    item.appendChild(keySpan);
+                    item.appendChild(descSpan);
+                    helpTerminalCommands.appendChild(item);
+                }
+            }
+        }
+        
+        const versionContainer = document.getElementById('help-version-info');
+        if (versionContainer) {
+            versionContainer.textContent = versionLine;
+        }
+        
+        isHelpOpen = true;
+        helpOverlayBg.style.display = 'flex';
+      }
+
+      let lastCommandTime = 0;
+
+      window.addEventListener('keydown', async (e) => {
+        if (document.activeElement === scaleInput) return;
+
+        if (isHelpOpen) {
+          if (e.key === 'Escape') {
+            closeHelp();
+            e.preventDefault();
+          }
+          return;
+        }
+
+        if (commandPrompt.style.display === 'block') {
+          if (e.key === 'Escape') {
+            commandPrompt.style.display = 'none';
+            commandInput.value = '';
+            e.preventDefault();
+          } else if (e.key === 'Enter') {
+            const cmd = commandInput.value.trim();
+            if (cmd) {
+              if (cmd.startsWith('z ')) {
+                tempZoomScale = null;
+              }
+              
+              let finalCmd = cmd;
+              if (cmd === 'h' || cmd.startsWith('h ') || cmd === 'help' || cmd.startsWith('help ')) {
+                finalCmd = 'h';
+              }
+
+              await invoke('send_command', { cmd: finalCmd });
+            }
+            commandPrompt.style.display = 'none';
+            commandInput.value = '';
+            e.preventDefault();
+          }
+          return;
+        }
+
+        let cmd = null;
+        if (e.key === 'ArrowRight') cmd = 'r';
+        else if (e.key === 'ArrowLeft') cmd = 'l';
+        else if (e.key === ' ') cmd = 'p';
+        else if (e.key === 'h') cmd = 'h';
+        else if (e.key === 'o') {
+          e.preventDefault();
+          overlay.style.left = '';
+          overlay.style.top = '';
+          overlay.style.bottom = '';
+          overlay.style.transform = '';
+          overlay.style.width = '';
+          overlay.style.height = '';
+          return;
+        }
+        else if (e.key === ':') {
+          e.preventDefault();
+          commandPrompt.style.display = 'block';
+          commandInput.focus();
+          return;
+        }
+
+        if (cmd) {
+          e.preventDefault();
+          if (e.repeat && (cmd === 'r' || cmd === 'l')) {
+            const now = Date.now();
+            if (now - lastCommandTime < 50) {
+              return;
+            }
+            lastCommandTime = now;
+            isBursting = true;
+          }
+          await invoke('send_command', { cmd });
+        }
+      });
+
+      window.addEventListener('keyup', async (e) => {
+        if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
+          if (isBursting) {
+            isBursting = false;
+            await invoke('send_command', { cmd: '__cancel_pending__' });
+          }
+        }
+      });
+
+      document.getElementById('btn-prev').addEventListener('click', () => invoke('send_command', { cmd: 'l' }));
+      document.getElementById('btn-pause').addEventListener('click', () => invoke('send_command', { cmd: 'p' }));
+      document.getElementById('btn-next').addEventListener('click', () => invoke('send_command', { cmd: 'r' }));
+      
+      document.getElementById('btn-zoom-in').addEventListener('click', () => {
+        let scale = getRealScale() * 1.2;
+        scale = Math.min(scale, 50.0);
+        tempZoomScale = null;
+        invoke('send_command', { cmd: `z ${scale}` });
+      });
+
+      document.getElementById('btn-zoom-out').addEventListener('click', () => {
+        let scale = getRealScale() / 1.2;
+        scale = Math.max(scale, 0.01);
+        tempZoomScale = null;
+        invoke('send_command', { cmd: `z ${scale}` });
+      });
+
+      document.getElementById('btn-zoom-mode').addEventListener('click', () => {
+        tempZoomScale = null; // Clear any manual zoom when explicitly changing mode
+        if (currentMode === 'shrink') {
+          invoke('send_command', { cmd: 'z fit' });
+        } else {
+          invoke('send_command', { cmd: 'z shrink' });
+        }
+      });
+
+      document.getElementById('btn-slideshow').addEventListener('click', () => invoke('send_command', { cmd: 's L1T3' }));
+
+      document.getElementById('btn-cmd').addEventListener('click', () => {
+        commandPrompt.style.display = 'block';
+        commandInput.focus();
+      });
+
+      document.getElementById('btn-help').addEventListener('click', () => invoke('send_command', { cmd: 'h' }));
+
+      const { getCurrentWindow } = window.__TAURI__.window;
+      document.getElementById('btn-minimize').addEventListener('click', () => getCurrentWindow().minimize());
+      document.getElementById('btn-maximize').addEventListener('click', () => getCurrentWindow().toggleMaximize());
+      document.getElementById('btn-close').addEventListener('click', () => invoke('send_command', { cmd: 'q' }));
+
+      document.getElementById('overlay-drag-bar').addEventListener('dblclick', () => {
+        const content = document.getElementById('overlay-content');
+        const overlayRect = overlay.getBoundingClientRect();
+        
+        // Define "at the bottom" as its bottom border being within 20px of the window's bottom
+        const isAtBottom = overlayRect.bottom >= window.innerHeight - 20;
+        
+        // Lock dimensions explicitly so CSS transition can animate them smoothly
+        overlay.style.width = overlayRect.width + 'px';
+        overlay.style.height = overlayRect.height + 'px';
+        
+        // Force the browser to register the exact pixel start coordinates
+        overlay.style.left = overlayRect.left + 'px';
+        overlay.style.top = overlayRect.top + 'px';
+        overlay.style.bottom = 'auto';
+        overlay.style.transform = 'none';
+        
+        // Trigger a reflow so the browser knows the starting state for the transition
+        void overlay.offsetWidth;
+        
+        // Enable animation class right before changing sizes
+        overlay.classList.add('animating');
+
+        if (content.style.display === 'none') {
+          // Expanding
+          content.style.display = 'flex';
+          transparencyDragBar.style.display = 'flex';
+          
+          // After expanding, content size changes. We need to measure it.
+          // Temporarily set position to get dimensions properly
+          const originalTop = overlay.style.top;
+          const originalBottom = overlay.style.bottom;
+          const originalTransform = overlay.style.transform;
+          const originalWidth = overlay.style.width;
+          const originalHeight = overlay.style.height;
+          
+          overlay.style.top = 'auto';
+          overlay.style.bottom = 'auto';
+          overlay.style.transform = 'none';
+          overlay.style.width = 'auto';
+          overlay.style.height = 'auto';
+          
+          const newRect = overlay.getBoundingClientRect();
+          
+          // Restore style so we can calculate correct offsets and animate TO them
+          overlay.style.top = originalTop;
+          overlay.style.bottom = originalBottom;
+          overlay.style.transform = originalTransform;
+          overlay.style.width = originalWidth;
+          overlay.style.height = originalHeight;
+
+          const widthDiff = newRect.width - overlayRect.width;
+          
+          let newLeft = overlayRect.left - widthDiff / 2;
+          let newTop;
+          
+          if (isAtBottom) {
+            // Expand upwards, keep bottom center aligned
+            newTop = overlayRect.bottom - newRect.height;
+          } else {
+            // Expand downwards, keep top center aligned
+            newTop = overlayRect.top;
+          }
+          
+          // Constrain to window
+          newLeft = Math.max(0, Math.min(newLeft, window.innerWidth - newRect.width));
+          newTop = Math.max(0, Math.min(newTop, window.innerHeight - newRect.height));
+          
+          // Trigger a reflow
+          void overlay.offsetWidth;
+          
+          // Now apply target dimensions for the animation
+          overlay.style.width = newRect.width + 'px';
+          overlay.style.height = newRect.height + 'px';
+          overlay.style.left = newLeft + 'px';
+          overlay.style.top = newTop + 'px';
+          
+        } else {
+          // Collapsing
+          // We can't set display to none immediately if we want to animate height/width smoothly.
+          // Instead, we just measure what it WILL be.
+          const originalTop = overlay.style.top;
+          const originalBottom = overlay.style.bottom;
+          const originalTransform = overlay.style.transform;
+          const originalWidth = overlay.style.width;
+          const originalHeight = overlay.style.height;
+          
+          content.style.display = 'none';
+          transparencyDragBar.style.display = 'none';
+          
+          overlay.style.top = 'auto';
+          overlay.style.bottom = 'auto';
+          overlay.style.transform = 'none';
+          overlay.style.width = 'auto';
+          overlay.style.height = 'auto';
+          
+          const newRect = overlay.getBoundingClientRect();
+          
+          // Revert so we can animate
+          content.style.display = 'flex';
+          transparencyDragBar.style.display = 'flex';
+          overlay.style.top = originalTop;
+          overlay.style.bottom = originalBottom;
+          overlay.style.transform = originalTransform;
+          overlay.style.width = originalWidth;
+          overlay.style.height = originalHeight;
+          
+          const widthDiff = overlayRect.width - newRect.width;
+
+          let newLeft = overlayRect.left + widthDiff / 2;
+          let newTop;
+
+          if (isAtBottom) {
+            // Collapse downwards, keep bottom center aligned
+            newTop = overlayRect.bottom - newRect.height;
+          } else {
+            // Collapse upwards, keep top center aligned
+            newTop = overlayRect.top;
+          }
+          
+          // Constrain to window
+          newLeft = Math.max(0, Math.min(newLeft, window.innerWidth - newRect.width));
+          newTop = Math.max(0, Math.min(newTop, window.innerHeight - newRect.height));
+          
+          // Reflow
+          void overlay.offsetWidth;
+          
+          // Animate!
+          overlay.style.width = newRect.width + 'px';
+          overlay.style.height = newRect.height + 'px';
+          overlay.style.left = newLeft + 'px';
+          overlay.style.top = newTop + 'px';
+          
+          // Hide the content at the end of the transition
+          setTimeout(() => {
+            if (overlay.style.width === newRect.width + 'px') { // ensure we didn't double click again
+              content.style.display = 'none';
+              transparencyDragBar.style.display = 'none';
+            }
+          }, 300);
+        }
+      });
+
+      // Initialize listeners and start engine
+      async function init() {
+        log("Frontend DOMContentLoaded. Initializing...");
+        
+        await listen('frame', (event) => {
+          log("Received frame event");
+          
+          const incomingZoomMode = event.payload.zoom_mode;
+          const incomingImagePath = event.payload.image_path;
+
+          let shouldClearTempZoom = false;
+
+          if (incomingImagePath && incomingImagePath !== currentImagePath) {
+            shouldClearTempZoom = true;
+            currentImagePath = incomingImagePath;
+          }
+
+          if (incomingZoomMode && incomingZoomMode !== lastReceivedZoomMode) {
+            shouldClearTempZoom = true;
+            lastReceivedZoomMode = incomingZoomMode;
+          }
+
+          if (shouldClearTempZoom) {
+            tempZoomScale = null;
+          }
+
+          let effectiveZoomMode = incomingZoomMode;
+          if (tempZoomScale !== null) {
+            effectiveZoomMode = tempZoomScale.toString();
+          }
+
+          let modeChanged = false;
+          if (effectiveZoomMode === 'fit' || effectiveZoomMode === 'shrink') {
+            if (currentMode !== effectiveZoomMode || shouldClearTempZoom) {
+              modeChanged = true;
+            }
+          } else if (effectiveZoomMode) {
+            let parsedMode = parseFloat(effectiveZoomMode);
+            if (currentMode !== 'fixed' || currentScale !== parsedMode || shouldClearTempZoom) {
+              modeChanged = true;
+            }
+          }
+
+          if (modeChanged && effectiveZoomMode) {
+            applyZoomMode(effectiveZoomMode);
+          } else {
+            updateOverlay(); // Just update the text if no mode change needed
+          }
+
+          if (event.payload.path) {
+            let newSrc = window.__TAURI__.core.convertFileSrc(event.payload.path);
+            if (viewer.src !== newSrc) {
+              viewer.src = newSrc;
+            }
+          } else if (event.payload.blob_url) {
+            if (viewer.src !== event.payload.blob_url) {
+              viewer.src = event.payload.blob_url;
+            }
+          } else if (event.payload.data_uri) {
+            if (viewer.src !== event.payload.data_uri) {
+              viewer.src = event.payload.data_uri;
+            }
+          }
+          viewer.style.display = 'block';
+        });
+
+        await listen('help', (event) => {
+          parseAndShowHelp(event.payload);
+        });
+
+        await listen('status', (event) => {
+          log("Received status event: " + event.payload);
+          
+          // Split the status payload to remove the " | Playing" or " | Paused" part from the display string
+          const parts = event.payload.split(' | ');
+          currentStatusMsg = parts[0]; // The part before " | "
+          
+          // Use the original payload to determine play/pause icon state
+          if (event.payload.includes("| Playing")) {
+            document.getElementById('icon-play').style.display = 'none';
+            document.getElementById('icon-pause').style.display = 'block';
+          } else {
+            document.getElementById('icon-play').style.display = 'block';
+            document.getElementById('icon-pause').style.display = 'none';
+          }
+
+          updateOverlay();
+        });
+
+        await listen('ping', (event) => {
+          log("Received ping event from backend");
+        });
+
+        log("Event listeners registered. Calling start_engine...");
+        
+        // Listen to window resize events to update the maximize/restore icon and window drag bar
+        getCurrentWindow().onResized(async () => {
+          const isMaximized = await getCurrentWindow().isMaximized();
+          if (isMaximized) {
+            document.getElementById('icon-maximize').style.display = 'none';
+            document.getElementById('icon-restore').style.display = 'block';
+            document.getElementById('btn-maximize').title = 'Restore';
+            document.getElementById('window-drag-bar').style.display = 'none';
+          } else {
+            document.getElementById('icon-maximize').style.display = 'block';
+            document.getElementById('icon-restore').style.display = 'none';
+            document.getElementById('btn-maximize').title = 'Maximize';
+            document.getElementById('window-drag-bar').style.display = 'flex';
+          }
+        });
+
+        // Fix 1: Properly tell Tauri we want to start dragging the window.
+        // In Tauri 2.0 without standard decorations, we often need to invoke the start_dragging method manually 
+        // if `data-tauri-drag-region` or `-webkit-app-region: drag` behaves inconsistently across platforms.
+        document.getElementById('window-drag-bar').addEventListener('mousedown', async (e) => {
+          if (e.button === 0) { // Left click
+            e.preventDefault();
+            await getCurrentWindow().startDragging();
+          }
+        });
+
+        // Tell backend we are ready to receive events
+        try {
+          await invoke('start_engine');
+          log("start_engine called successfully");
+          await getCurrentWindow().show();
+        } catch (e) {
+          console.error("Failed to call start_engine:", e);
+        }
+      }
+
+      window.addEventListener('DOMContentLoaded', init);
+    </script>
+  </body>
+</html>

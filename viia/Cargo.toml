@@ -1,0 +1,49 @@
+[package]
+name = "viia"
+version = "0.1.0"
+edition = "2024"
+repository = "https://github.com/viia/viia"
+authors = ["Admin"]
+description = "viia"
+license = "MIT"
+
+[package.metadata.wix]
+upgrade-guid = "A6A7DAD8-03C2-47F1-A89C-C5B4EB99E47C"
+path-guid = "76D965F3-AA17-4DF1-8F32-5436096A95E3"
+license = false
+eula = false
+
+[lib]
+name = "viia"
+path = "src/lib.rs"
+
+[[bin]]
+name = "viia"
+path = "src/bin/viia.rs"
+
+[[bin]]
+name = "viiaw"
+path = "src/bin/viiaw.rs"
+required-features = ["gui"]
+
+[dependencies]
+clap = { version = "4.6.0", features = ["derive"] }
+ctrlc = "3.5.2"
+log = "0.4.29"
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
+tui-logger = { version = "0.18.1", features = ["tracing-support"] }
+viia-core = { version = "0.1.0", path = "../viia-core" }
+viia-gui = { version = "0.1.0", path = "../viia-gui", optional = true }
+viia-tui = { version = "0.1.0", path = "../viia-tui" }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61.2", features = ["Win32_System_Console"] }
+
+[build-dependencies]
+chrono = "0.4"
+embed-resource = "3.0.8"
+
+[features]
+gui = ["dep:viia-gui"]
+

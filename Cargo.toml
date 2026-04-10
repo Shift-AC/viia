@@ -1,0 +1,19 @@
+[workspace]
+members = [
+    "viia",
+    "viia-core",
+    "viia-tui",
+    "viia-gui",
+    "agents-test/windows_subsystem_test"
+]
+default-members = [
+    "viia",
+    "viia-core",
+    "viia-tui"
+]
+resolver = "2"
+
+# The profile that 'dist' will build with
+[profile.dist]
+inherits = "release"
+lto = "thin"

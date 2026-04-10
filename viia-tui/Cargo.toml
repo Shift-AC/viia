@@ -1,0 +1,15 @@
+[package]
+name = "viia-tui"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+clap = "4.6.0"
+crossterm = "0.29.0"
+image = "0.25.10"
+ratatui = "0.30.0"
+ratatui-image = { version = "=10.0.2", default-features = false, features = ["crossterm"] }
+terminal-light = "1.8.0"
+tracing = "0.1.44"
+tui-logger = { version = "0.18.1", features = ["tracing-support"] }
+viia-core = { version = "0.1.0", path = "../viia-core" }
