@@ -4,7 +4,7 @@ members = [
     "viia-core",
     "viia-tui",
     "viia-gui"
-]
+, "agents-test/lazy-decode-poc"]
 default-members = [
     "viia",
     "viia-core",

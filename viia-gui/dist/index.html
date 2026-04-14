@@ -19,13 +19,13 @@
         display: flex;
         background-color: #000; /* Main app background */
       }
-      #viewer {
+      #viewer, #viewer-canvas {
         margin: auto;
         cursor: grab;
         user-select: none;
         -webkit-user-drag: none;
       }
-      #viewer:active {
+      #viewer:active, #viewer-canvas:active {
         cursor: grabbing;
       }
       #window-drag-bar {
@@ -392,6 +392,7 @@
   <body>
     <div id="window-drag-bar" data-tauri-drag-region></div>
     <img id="viewer" src="" style="display: none;" />
+    <canvas id="viewer-canvas" style="display: none;"></canvas>
     <div id="overlay">
       <div id="overlay-main">
         <div id="overlay-header">
@@ -485,11 +486,11 @@
                   <h3>GUI Shortcuts</h3>
                   <div class="help-list" style="flex: 1;">
                       <div class="help-item">
-                          <span class="help-key">→</span>
+                          <span class="help-key">�?/span>
                           <span class="help-desc">Next image</span>
                       </div>
                       <div class="help-item">
-                          <span class="help-key">←</span>
+                          <span class="help-key">�?/span>
                           <span class="help-desc">Previous image</span>
                       </div>
                       <div class="help-item">
@@ -561,6 +562,8 @@
       }
 
       const viewer = document.getElementById('viewer');
+      const viewerCanvas = document.getElementById('viewer-canvas');
+      let activeViewer = viewer;
       const overlay = document.getElementById('overlay');
       const statusMsg = document.getElementById('status-msg');
       const scaleInput = document.getElementById('scale-input');
@@ -584,17 +587,29 @@
       let isBursting = false;
 
       // Helper to calculate the *real* scale of the image relative to its natural size
+      function getViewerNaturalWidth() {
+        if (activeViewer === viewer) return viewer.naturalWidth;
+        return viewerCanvas.width;
+      }
+
+      function getViewerNaturalHeight() {
+        if (activeViewer === viewer) return viewer.naturalHeight;
+        return viewerCanvas.height;
+      }
+
       function getRealScale() {
-        if (!viewer.naturalWidth) return currentScale;
-        const rect = viewer.getBoundingClientRect();
+        const natWidth = getViewerNaturalWidth();
+        if (!natWidth) return currentScale;
+        const rect = activeViewer.getBoundingClientRect();
         // Since we might be scaled via transform, getBoundingClientRect includes transform.
         // We want the scale relative to natural width.
-        return rect.width / viewer.naturalWidth;
+        return rect.width / natWidth;
       }
 
       function updateOverlay() {
         let scaleVal = "?";
-        if (viewer.naturalWidth) {
+        const natWidth = getViewerNaturalWidth();
+        if (natWidth) {
           const realScale = getRealScale();
           scaleVal = Math.round(realScale * 100);
         }
@@ -622,9 +637,9 @@
       }
 
       viewer.addEventListener('load', () => {
-        if (currentMode === 'fixed' && viewer.naturalWidth) {
-          viewer.style.width = `${viewer.naturalWidth * currentScale}px`;
-          viewer.style.height = `${viewer.naturalHeight * currentScale}px`;
+        if (currentMode === 'fixed' && getViewerNaturalWidth()) {
+          activeViewer.style.width = `${getViewerNaturalWidth() * currentScale}px`;
+          activeViewer.style.height = `${getViewerNaturalHeight() * currentScale}px`;
         }
         updateOverlay();
       });
@@ -704,7 +719,7 @@
         if (e.target === commandInput) return;
         if (overlay.contains(e.target)) return;
         
-        const rect = viewer.getBoundingClientRect();
+        const rect = activeViewer.getBoundingClientRect();
         // Check if image is strictly larger than the viewport (excluding scrollbars)
         const canScrollX = Math.round(rect.width) > document.documentElement.clientWidth;
         const canScrollY = Math.round(rect.height) > document.documentElement.clientHeight;
@@ -848,7 +863,7 @@
         }
         e.preventDefault();
 
-        const oldRect = viewer.getBoundingClientRect();
+        const oldRect = activeViewer.getBoundingClientRect();
         const oldImageCenterX = oldRect.left + oldRect.width / 2 + window.scrollX;
         const oldImageCenterY = oldRect.top + oldRect.height / 2 + window.scrollY;
 
@@ -877,16 +892,16 @@
           currentScale = newScale;
           tempZoomScale = newScale;
 
-          if (viewer.naturalWidth) {
-            viewer.style.width = `${viewer.naturalWidth * currentScale}px`;
-            viewer.style.height = `${viewer.naturalHeight * currentScale}px`;
+          if (getViewerNaturalWidth()) {
+            activeViewer.style.width = `${getViewerNaturalWidth() * currentScale}px`;
+            activeViewer.style.height = `${getViewerNaturalHeight() * currentScale}px`;
           }
-          viewer.style.maxWidth = 'none';
-          viewer.style.maxHeight = 'none';
-          viewer.style.objectFit = 'contain';
-          viewer.style.transform = 'none';
+          activeViewer.style.maxWidth = 'none';
+          activeViewer.style.maxHeight = 'none';
+          activeViewer.style.objectFit = 'contain';
+          activeViewer.style.transform = 'none';
 
-          const newRect = viewer.getBoundingClientRect();
+          const newRect = activeViewer.getBoundingClientRect();
           const newImageCenterX = newRect.left + newRect.width / 2 + window.scrollX;
           const newImageCenterY = newRect.top + newRect.height / 2 + window.scrollY;
 
@@ -907,7 +922,7 @@
         const viewCenterX = window.scrollX + window.innerWidth / 2;
         const viewCenterY = window.scrollY + window.innerHeight / 2;
         
-        const oldRect = viewer.getBoundingClientRect();
+        const oldRect = activeViewer.getBoundingClientRect();
         // Distance from view center to old image center
         const oldImageCenterX = oldRect.left + oldRect.width / 2 + window.scrollX;
         const oldImageCenterY = oldRect.top + oldRect.height / 2 + window.scrollY;
@@ -915,22 +930,22 @@
         const dx = viewCenterX - oldImageCenterX;
         const dy = viewCenterY - oldImageCenterY;
         
-        viewer.style.transform = 'none';
+        activeViewer.style.transform = 'none';
         
         if (mode === 'fit') {
           currentMode = 'fit';
-          viewer.style.width = '100%';
-          viewer.style.height = '100%';
-          viewer.style.maxWidth = 'none';
-          viewer.style.maxHeight = 'none';
-          viewer.style.objectFit = 'contain';
+          activeViewer.style.width = '100vw';
+          activeViewer.style.height = '100vh';
+          activeViewer.style.maxWidth = 'none';
+          activeViewer.style.maxHeight = 'none';
+          activeViewer.style.objectFit = 'contain';
         } else if (mode === 'shrink') {
           currentMode = 'shrink';
-          viewer.style.width = 'auto';
-          viewer.style.height = 'auto';
-          viewer.style.maxWidth = '100%';
-          viewer.style.maxHeight = '100%';
-          viewer.style.objectFit = 'scale-down';
+          activeViewer.style.width = 'auto';
+          activeViewer.style.height = 'auto';
+          activeViewer.style.maxWidth = '100vw';
+          activeViewer.style.maxHeight = '100vh';
+          activeViewer.style.objectFit = 'scale-down';
         } else {
           // Fixed scale mode or manual zoom mode
           currentMode = 'fixed';
@@ -938,18 +953,18 @@
           if (!isNaN(parsedMode) && parsedMode > 0) {
             currentScale = parsedMode;
           }
-          if (viewer.naturalWidth) {
-            viewer.style.width = `${viewer.naturalWidth * currentScale}px`;
-            viewer.style.height = `${viewer.naturalHeight * currentScale}px`;
+          if (getViewerNaturalWidth()) {
+            activeViewer.style.width = `${getViewerNaturalWidth() * currentScale}px`;
+            activeViewer.style.height = `${getViewerNaturalHeight() * currentScale}px`;
           }
-          viewer.style.maxWidth = 'none';
-          viewer.style.maxHeight = 'none';
-          viewer.style.objectFit = 'contain';
+          activeViewer.style.maxWidth = 'none';
+          activeViewer.style.maxHeight = 'none';
+          activeViewer.style.objectFit = 'contain';
         }
 
         // Use requestAnimationFrame to let CSS layout pass finish and naturalWidth apply
         requestAnimationFrame(() => {
-          const newRect = viewer.getBoundingClientRect();
+          const newRect = activeViewer.getBoundingClientRect();
           const newImageCenterX = newRect.left + newRect.width / 2 + window.scrollX;
           const newImageCenterY = newRect.top + newRect.height / 2 + window.scrollY;
 
@@ -1328,6 +1343,41 @@
             effectiveZoomMode = tempZoomScale.toString();
           }
 
+          // Fetch or update content first so dimensions are correct
+          if (event.payload.path || event.payload.data_uri) {
+            // It's a static image
+            viewerCanvas.style.display = 'none';
+            activeViewer = viewer;
+            
+            let newSrc = event.payload.path ? window.__TAURI__.core.convertFileSrc(event.payload.path) : event.payload.data_uri;
+            if (viewer.src !== newSrc) {
+              viewer.src = newSrc;
+            }
+            viewer.style.display = 'block';
+          } else if (event.payload.blob_url) {
+            // It's a raw RGBA animation frame
+            viewer.style.display = 'none';
+            activeViewer = viewerCanvas;
+            
+            const url = event.payload.blob_url;
+            const w = event.payload.width;
+            const h = event.payload.height;
+            
+            if (viewerCanvas.width !== w || viewerCanvas.height !== h) {
+                viewerCanvas.width = w;
+                viewerCanvas.height = h;
+            }
+            
+            fetch(url).then(r => r.arrayBuffer()).then(buffer => {
+                const arr = new Uint8ClampedArray(buffer);
+                const imageData = new ImageData(arr, w, h);
+                const ctx = viewerCanvas.getContext('2d');
+                ctx.putImageData(imageData, 0, 0);
+            }).catch(e => console.error("Fetch raw frame failed:", e));
+            
+            viewerCanvas.style.display = 'block';
+          }
+
           let modeChanged = false;
           if (effectiveZoomMode === 'fit' || effectiveZoomMode === 'shrink') {
             if (currentMode !== effectiveZoomMode || shouldClearTempZoom) {
@@ -1343,24 +1393,13 @@
           if (modeChanged && effectiveZoomMode) {
             applyZoomMode(effectiveZoomMode);
           } else {
+            // Apply current scale if it's canvas and no mode changed (to keep scale)
+            if (activeViewer === viewerCanvas && currentMode === 'fixed') {
+                viewerCanvas.style.width = `${viewerCanvas.width * currentScale}px`;
+                viewerCanvas.style.height = `${viewerCanvas.height * currentScale}px`;
+            }
             updateOverlay(); // Just update the text if no mode change needed
           }
-
-          if (event.payload.path) {
-            let newSrc = window.__TAURI__.core.convertFileSrc(event.payload.path);
-            if (viewer.src !== newSrc) {
-              viewer.src = newSrc;
-            }
-          } else if (event.payload.blob_url) {
-            if (viewer.src !== event.payload.blob_url) {
-              viewer.src = event.payload.blob_url;
-            }
-          } else if (event.payload.data_uri) {
-            if (viewer.src !== event.payload.data_uri) {
-              viewer.src = event.payload.data_uri;
-            }
-          }
-          viewer.style.display = 'block';
         });
 
         await listen('help', (event) => {

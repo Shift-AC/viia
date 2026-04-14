@@ -48,7 +48,7 @@ pub fn run_tui(paths: Vec<PathBuf>, prefetch: usize) -> Result<(), Box<dyn std::
     picker.set_background_color(bg_rgba);
     let cache = FrameCache::default();
 
-    let resolved_paths = collect_image_paths(paths);
+    let (resolved_paths, start_idx) = collect_image_paths(paths);
     let mut animations = Vec::new();
     for path in resolved_paths {
         if let Ok(anim) = Animation::skim(path) {
@@ -61,7 +61,7 @@ pub fn run_tui(paths: Vec<PathBuf>, prefetch: usize) -> Result<(), Box<dyn std::
         // Just show empty state if no images
         run_empty_loop(&mut terminal)
     } else {
-        run_loop(&mut terminal, picker, animations, cache, prefetch)
+        run_loop(&mut terminal, picker, animations, cache, prefetch, start_idx)
     };
 
     // Restore terminal
@@ -120,10 +120,12 @@ fn run_loop(
     mut animations: Vec<Animation>,
     cache: FrameCache,
     prefetch: usize,
+    start_idx: usize,
 ) -> io::Result<()> {
-    let mut current_idx = 0;
+    let mut current_idx = start_idx.min(animations.len().saturating_sub(1));
 
     update_prefetch(&mut animations, current_idx, prefetch);
+    animations[current_idx].ensure_parsed();
     // Default to loop forever
     let default_cmd = vec![TimingCommand {
         loops: None,
@@ -131,7 +133,9 @@ fn run_loop(
         infinite: true,
     }];
     let mut manager = SlideshowManager::new(default_cmd.clone());
-    manager.load_animation(&animations[current_idx]);
+    if let Err(e) = manager.load_animation(&animations[current_idx]) {
+        animations[current_idx].state = viia_core::AnimationState::Error(e);
+    }
 
     terminal.clear()?;
 
@@ -139,6 +143,7 @@ fn run_loop(
     let mut image_state: Option<ratatui_image::protocol::StatefulProtocol> = None;
     let mut last_rendered_frame = usize::MAX;
     let mut last_rendered_idx = usize::MAX;
+    let mut last_rendered_had_frame = false;
 
     let mut log_height: u16 = 10;
     let mut is_dragging = false;
@@ -157,29 +162,38 @@ fn run_loop(
 
         update_prefetch(&mut animations, current_idx, prefetch);
 
-        let should_advance = manager.tick(dt, &animations[current_idx]);
-        if should_advance {
-            current_idx = (current_idx + 1) % animations.len();
-            tracing::info!(
-                "Auto-advancing to next image: {}",
-                animations[current_idx].source_path.display()
-            );
-            update_prefetch(&mut animations, current_idx, prefetch);
-            manager.load_animation(&animations[current_idx]);
-            last_rendered_frame = usize::MAX; // Force re-render
+        match manager.tick(dt, &animations[current_idx]) {
+            Ok(should_advance) => {
+                if should_advance {
+                    current_idx = (current_idx + 1) % animations.len();
+                    tracing::info!(
+                        "Auto-advancing to next image: {}",
+                        animations[current_idx].source_path.display()
+                    );
+                    update_prefetch(&mut animations, current_idx, prefetch);
+                    if let Err(e) = manager.load_animation(&animations[current_idx]) {
+                        animations[current_idx].state = viia_core::AnimationState::Error(e);
+                    }
+                    last_rendered_frame = usize::MAX; // Force re-render
+                }
+            }
+            Err(e) => {
+                animations[current_idx].state = viia_core::AnimationState::Error(e);
+            }
         }
 
         let frame_idx = manager.current_frame_index();
-        let needs_render = current_idx != last_rendered_idx || frame_idx != last_rendered_frame;
+        let has_frame = manager.current_frame().is_some();
+        let needs_render = current_idx != last_rendered_idx 
+            || frame_idx != last_rendered_frame 
+            || (!last_rendered_had_frame && has_frame);
 
         if needs_render {
             if current_idx != last_rendered_idx {
                 force_clear = true;
             }
             needs_redraw = true;
-            if let viia_core::AnimationState::Parsed(frames) = &animations[current_idx].state
-                && let Some(frame) = frames.get(frame_idx)
-            {
+            if let Some(frame) = manager.current_frame() {
                 let dyn_img = match zoom_mode {
                     viia_core::ZoomMode::Fixed(scale) => {
                         let new_width = (frame.data.width() as f32 * scale / 100.0).max(1.0) as u32;
@@ -282,6 +296,7 @@ fn run_loop(
         if needs_render {
             last_rendered_idx = current_idx;
             last_rendered_frame = frame_idx;
+            last_rendered_had_frame = has_frame;
         }
 
         let sleep_dur = manager.time_until_next_frame(&animations[current_idx]);
@@ -305,7 +320,9 @@ fn run_loop(
                                         animations[current_idx].source_path.display()
                                     );
                                     update_prefetch(&mut animations, current_idx, prefetch);
-                                    manager.load_animation(&animations[current_idx]);
+                                    if let Err(e) = manager.load_animation(&animations[current_idx]) {
+                                        animations[current_idx].state = viia_core::AnimationState::Error(e);
+                                    }
                                     last_rendered_frame = usize::MAX;
                                 }
                                 KeyCode::Left => {
@@ -319,7 +336,9 @@ fn run_loop(
                                         animations[current_idx].source_path.display()
                                     );
                                     update_prefetch(&mut animations, current_idx, prefetch);
-                                    manager.load_animation(&animations[current_idx]);
+                                    if let Err(e) = manager.load_animation(&animations[current_idx]) {
+                                        animations[current_idx].state = viia_core::AnimationState::Error(e);
+                                    }
                                     last_rendered_frame = usize::MAX;
                                 }
                                 KeyCode::Char(':') => {
@@ -352,9 +371,11 @@ fn run_loop(
                                                                 .display()
                                                         );
                                                         update_prefetch(&mut animations, current_idx, prefetch);
-                                                        manager.load_animation(
+                                                        if let Err(e) = manager.load_animation(
                                                             &animations[current_idx],
-                                                        );
+                                                        ) {
+                                                            animations[current_idx].state = viia_core::AnimationState::Error(e);
+                                                        }
                                                         last_rendered_frame = usize::MAX;
                                                     }
                                                     viia_core::RuntimeAction::ShowPrevious => {
@@ -370,9 +391,11 @@ fn run_loop(
                                                                 .display()
                                                         );
                                                         update_prefetch(&mut animations, current_idx, prefetch);
-                                                        manager.load_animation(
+                                                        if let Err(e) = manager.load_animation(
                                                             &animations[current_idx],
-                                                        );
+                                                        ) {
+                                                            animations[current_idx].state = viia_core::AnimationState::Error(e);
+                                                        }
                                                         last_rendered_frame = usize::MAX;
                                                     }
                                                     viia_core::RuntimeAction::ShowCurrent => {
@@ -412,10 +435,12 @@ fn run_loop(
                                                             )
                                                         {
                                                             if !cmds.is_empty() {
-                                                                manager.set_commands(
+                                                                if let Err(e) = manager.set_commands(
                                                                     cmds,
                                                                     &animations[current_idx],
-                                                                );
+                                                                ) {
+                                                                    animations[current_idx].state = viia_core::AnimationState::Error(e);
+                                                                }
                                                                 last_rendered_frame = usize::MAX;
                                                             }
                                                         } else {

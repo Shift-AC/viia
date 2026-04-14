@@ -1,6 +1,4 @@
 use base64::{Engine as _, engine::general_purpose};
-use image::DynamicImage;
-use std::io::Cursor;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -25,6 +23,10 @@ struct FramePayload {
     zoom_mode: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     image_path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    width: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    height: Option<u32>,
 }
 
 struct AppState {
@@ -75,7 +77,7 @@ fn engine_loop(
         "Frontend is ready. Starting GUI engine loop with {} input paths",
         paths.len()
     );
-    let resolved_paths = collect_image_paths(paths);
+    let (resolved_paths, start_idx) = collect_image_paths(paths);
     info!("Resolved {} image paths", resolved_paths.len());
 
     let mut animations = Vec::new();
@@ -97,22 +99,26 @@ fn engine_loop(
     }
 
     info!("Successfully loaded {} animations", animations.len());
-
-    let mut current_idx = 0;
+    let mut current_idx = start_idx.min(animations.len().saturating_sub(1));
     update_prefetch(&mut animations, current_idx, prefetch);
+    animations[current_idx].ensure_parsed();
+
     let default_cmd = vec![TimingCommand {
         loops: None,
         time_secs: None,
         infinite: true,
     }];
     let mut manager = SlideshowManager::new(default_cmd.clone());
-    manager.load_animation(&animations[current_idx]);
+    if let Err(e) = manager.load_animation(&animations[current_idx]) {
+        animations[current_idx].state = viia_core::AnimationState::Error(e);
+    }
 
     let mut zoom_mode = viia_core::ZoomMode::Shrink;
 
     let mut last_tick = Instant::now();
     let mut last_rendered_frame = usize::MAX;
     let mut last_rendered_idx = usize::MAX;
+    let mut last_rendered_had_frame = false;
 
     loop {
         let now = Instant::now();
@@ -173,7 +179,9 @@ fn engine_loop(
                                 animations[current_idx].source_path.display()
                             );
                             update_prefetch(&mut animations, current_idx, prefetch);
-                            manager.load_animation(&animations[current_idx]);
+                            if let Err(e) = manager.load_animation(&animations[current_idx]) {
+                                animations[current_idx].state = viia_core::AnimationState::Error(e);
+                            }
                             last_rendered_frame = usize::MAX;
                         }
                         RuntimeAction::ShowPrevious => {
@@ -188,7 +196,9 @@ fn engine_loop(
                                 animations[current_idx].source_path.display()
                             );
                             update_prefetch(&mut animations, current_idx, prefetch);
-                            manager.load_animation(&animations[current_idx]);
+                            if let Err(e) = manager.load_animation(&animations[current_idx]) {
+                                animations[current_idx].state = viia_core::AnimationState::Error(e);
+                            }
                             last_rendered_frame = usize::MAX;
                         }
                         RuntimeAction::ShowCurrent => {
@@ -216,7 +226,9 @@ fn engine_loop(
                                 && !cmds.is_empty()
                             {
                                 info!("Parsed {} timing commands for slideshow", cmds.len());
-                                manager.set_commands(cmds, &animations[current_idx]);
+                                if let Err(e) = manager.set_commands(cmds, &animations[current_idx]) {
+                                    animations[current_idx].state = viia_core::AnimationState::Error(e);
+                                }
                                 last_rendered_frame = usize::MAX;
                             } else {
                                 warn!(
@@ -247,21 +259,32 @@ fn engine_loop(
             }
         }
 
-        let should_advance = manager.tick(dt, &animations[current_idx]);
-        if should_advance {
-            current_idx = (current_idx + 1) % animations.len();
-            info!(
-                "Automatically advancing to next animation: index {} ({})",
-                current_idx,
-                animations[current_idx].source_path.display()
-            );
-            update_prefetch(&mut animations, current_idx, prefetch);
-            manager.load_animation(&animations[current_idx]);
-            last_rendered_frame = usize::MAX;
+        match manager.tick(dt, &animations[current_idx]) {
+            Ok(should_advance) => {
+                if should_advance {
+                    current_idx = (current_idx + 1) % animations.len();
+                    info!(
+                        "Automatically advancing to next animation: index {} ({})",
+                        current_idx,
+                        animations[current_idx].source_path.display()
+                    );
+                    update_prefetch(&mut animations, current_idx, prefetch);
+                    if let Err(e) = manager.load_animation(&animations[current_idx]) {
+                        animations[current_idx].state = viia_core::AnimationState::Error(e);
+                    }
+                    last_rendered_frame = usize::MAX;
+                }
+            }
+            Err(e) => {
+                animations[current_idx].state = viia_core::AnimationState::Error(e);
+            }
         }
 
         let frame_idx = manager.current_frame_index();
-        let needs_render = current_idx != last_rendered_idx || frame_idx != last_rendered_frame;
+        let has_frame = manager.current_frame().is_some();
+        let needs_render = current_idx != last_rendered_idx 
+            || frame_idx != last_rendered_frame 
+            || (!last_rendered_had_frame && has_frame);
 
         if needs_render {
             debug!(
@@ -275,10 +298,8 @@ fn engine_loop(
                 viia_core::ZoomMode::Fixed(s) => s.to_string(),
             };
 
-            if let viia_core::AnimationState::Parsed(frames) = &animations[current_idx].state
-                && let Some(frame) = frames.get(frame_idx)
-            {
-                if frames.len() == 1 {
+            if let Some(frame) = manager.current_frame() {
+                if animations[current_idx].is_single_frame() {
                     let path = animations[current_idx]
                         .source_path
                         .to_string_lossy()
@@ -292,65 +313,62 @@ fn engine_loop(
                             blob_url: None,
                             zoom_mode: Some(zoom_str),
                             image_path: Some(path),
+                            width: None,
+                            height: None,
                         },
                     ) {
                         error!("Failed to emit frame event: {}", e);
                     }
                 } else {
-                    // Convert frame.data (RgbaImage) to bytes for the custom protocol
-                    let dyn_img = DynamicImage::ImageRgba8(frame.data.clone());
-                    let mut cursor = Cursor::new(Vec::new());
+                    // Serve raw RGBA bytes for animations
+                    let width = frame.data.width();
+                    let height = frame.data.height();
+                    let buffer = frame.data.as_raw().clone();
+                    
+                    *frame_state.buffer.lock().unwrap() = buffer;
+                    *frame_state.content_type.lock().unwrap() = "application/octet-stream".to_string();
 
-                    if dyn_img
-                        .write_to(&mut cursor, image::ImageFormat::Png)
-                        .is_ok()
-                    {
-                        let buffer = cursor.into_inner();
-                        *frame_state.buffer.lock().unwrap() = buffer;
-                        *frame_state.content_type.lock().unwrap() = "image/png".to_string();
+                    // Encode parameters for caching
+                    let path_str = animations[current_idx]
+                        .source_path
+                        .to_string_lossy()
+                        .to_string();
+                    let path_b64 = general_purpose::URL_SAFE_NO_PAD.encode(path_str.as_bytes());
 
-                        // Encode parameters for caching
-                        let path_str = animations[current_idx]
-                            .source_path
-                            .to_string_lossy()
-                            .to_string();
-                        let path_b64 = general_purpose::URL_SAFE_NO_PAD.encode(path_str.as_bytes());
+                    #[cfg(any(windows, target_os = "android"))]
+                    let protocol_prefix = "http://viia.localhost";
+                    #[cfg(not(any(windows, target_os = "android")))]
+                    let protocol_prefix = "viia://localhost";
 
-                        #[cfg(any(windows, target_os = "android"))]
-                        let protocol_prefix = "http://viia.localhost";
-                        #[cfg(not(any(windows, target_os = "android")))]
-                        let protocol_prefix = "viia://localhost";
-
-                        let blob_url = if let viia_core::ZoomMode::Fixed(_) = zoom_mode {
-                            format!(
-                                "{}/frame?path={}&frame={}&scale={}",
-                                protocol_prefix, path_b64, frame_idx, zoom_str
-                            )
-                        } else {
-                            format!(
-                                "{}/frame?path={}&frame={}",
-                                protocol_prefix, path_b64, frame_idx
-                            )
-                        };
-
-                        debug!(
-                            "Emitting blob url {} for animation {}",
-                            blob_url, current_idx
-                        );
-                        if let Err(e) = app.emit(
-                            "frame",
-                            FramePayload {
-                                data_uri: None,
-                                path: None,
-                                blob_url: Some(blob_url),
-                                zoom_mode: Some(zoom_str),
-                                image_path: Some(path_str),
-                            },
-                        ) {
-                            error!("Failed to emit frame event: {}", e);
-                        }
+                    let blob_url = if let viia_core::ZoomMode::Fixed(_) = zoom_mode {
+                        format!(
+                            "{}/frame?path={}&frame={}&scale={}",
+                            protocol_prefix, path_b64, frame_idx, zoom_str
+                        )
                     } else {
-                        error!("Failed to encode frame to PNG");
+                        format!(
+                            "{}/frame?path={}&frame={}",
+                            protocol_prefix, path_b64, frame_idx
+                        )
+                    };
+
+                    debug!(
+                        "Emitting blob url {} for animation {}",
+                        blob_url, current_idx
+                    );
+                    if let Err(e) = app.emit(
+                        "frame",
+                        FramePayload {
+                            data_uri: None,
+                            path: None,
+                            blob_url: Some(blob_url),
+                            zoom_mode: Some(zoom_str),
+                            image_path: Some(path_str),
+                            width: Some(width),
+                            height: Some(height),
+                        },
+                    ) {
+                        error!("Failed to emit frame event: {}", e);
                     }
                 }
             } else if let viia_core::AnimationState::Error(err) = &animations[current_idx].state {
@@ -369,6 +387,8 @@ fn engine_loop(
                         blob_url: None,
                         zoom_mode: Some(zoom_str),
                         image_path: Some(path),
+                        width: None,
+                        height: None,
                     },
                 ) {
                     error!("Failed to emit frame event: {}", e);
@@ -424,6 +444,7 @@ fn engine_loop(
 
             last_rendered_idx = current_idx;
             last_rendered_frame = frame_idx;
+            last_rendered_had_frame = has_frame;
         }
 
         let sleep_dur = manager.time_until_next_frame(&animations[current_idx]);

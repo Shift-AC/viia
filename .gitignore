@@ -3,3 +3,4 @@
 /agents-test
 *.zip
 *.tar.gz
+Cargo.lock
