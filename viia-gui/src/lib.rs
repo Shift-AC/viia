@@ -226,8 +226,10 @@ fn engine_loop(
                                 && !cmds.is_empty()
                             {
                                 info!("Parsed {} timing commands for slideshow", cmds.len());
-                                if let Err(e) = manager.set_commands(cmds, &animations[current_idx]) {
-                                    animations[current_idx].state = viia_core::AnimationState::Error(e);
+                                if let Err(e) = manager.set_commands(cmds, &animations[current_idx])
+                                {
+                                    animations[current_idx].state =
+                                        viia_core::AnimationState::Error(e);
                                 }
                                 last_rendered_frame = usize::MAX;
                             } else {
@@ -282,8 +284,8 @@ fn engine_loop(
 
         let frame_idx = manager.current_frame_index();
         let has_frame = manager.current_frame().is_some();
-        let needs_render = current_idx != last_rendered_idx 
-            || frame_idx != last_rendered_frame 
+        let needs_render = current_idx != last_rendered_idx
+            || frame_idx != last_rendered_frame
             || (!last_rendered_had_frame && has_frame);
 
         if needs_render {
@@ -324,9 +326,10 @@ fn engine_loop(
                     let width = frame.data.width();
                     let height = frame.data.height();
                     let buffer = frame.data.as_raw().clone();
-                    
+
                     *frame_state.buffer.lock().unwrap() = buffer;
-                    *frame_state.content_type.lock().unwrap() = "application/octet-stream".to_string();
+                    *frame_state.content_type.lock().unwrap() =
+                        "application/octet-stream".to_string();
 
                     // Encode parameters for caching
                     let path_str = animations[current_idx]
@@ -373,7 +376,7 @@ fn engine_loop(
                 }
             } else if let viia_core::AnimationState::Error(err) = &animations[current_idx].state {
                 error!("Failed to render image: {}", err);
-                
+
                 // Clear the image and we will emit an error in the status message
                 let path = animations[current_idx]
                     .source_path

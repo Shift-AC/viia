@@ -1,6 +1,6 @@
-use crate::{Animation, AnimationState, Frame};
-use crate::slideshow_parser::TimingCommand;
 use crate::lazy_decoder::LazyDecoder;
+use crate::slideshow_parser::TimingCommand;
+use crate::{Animation, AnimationState, Frame};
 use std::time::{Duration, Instant};
 use tracing::{info, warn};
 
@@ -26,7 +26,7 @@ pub struct SlideshowManager {
     current_frame: Option<Frame>,
     current_frame_idx: usize,
     frame_elapsed: Duration,
-    
+
     active_decoder: Option<LazyDecoder>,
     loops_completed: u32,
 }
@@ -49,7 +49,11 @@ impl SlideshowManager {
     }
 
     /// Sets a new set of timing commands and resets the current state
-    pub fn set_commands(&mut self, commands: Vec<TimingCommand>, current_animation: &Animation) -> Result<(), String> {
+    pub fn set_commands(
+        &mut self,
+        commands: Vec<TimingCommand>,
+        current_animation: &Animation,
+    ) -> Result<(), String> {
         info!("Setting new commands: {:?}", commands);
         self.commands = commands;
         self.current_command_idx = 0;
@@ -72,10 +76,14 @@ impl SlideshowManager {
             AnimationState::Static(frame) => {
                 self.current_frame = Some(frame.clone());
             }
-            AnimationState::Animated { bytes, format, first_frame } => {
+            AnimationState::Animated {
+                bytes,
+                format,
+                first_frame,
+            } => {
                 // Use the pre-decoded first frame immediately
                 self.current_frame = Some(first_frame.clone());
-                
+
                 // Initialize the decoder but do NOT call next() yet.
                 // tick() will handle advancing when the first frame's duration expires.
                 match LazyDecoder::new(bytes.clone(), *format) {
@@ -141,7 +149,10 @@ impl SlideshowManager {
                 PlaybackState::Playing => PlaybackState::Paused,
                 PlaybackState::Paused => PlaybackState::Playing,
             };
-            info!("Playback state toggled while in error state to {:?}", *stored);
+            info!(
+                "Playback state toggled while in error state to {:?}",
+                *stored
+            );
             return;
         }
 
@@ -175,7 +186,7 @@ impl SlideshowManager {
         if cmd.infinite {
             return false;
         }
-        
+
         let mut ready_loops = false;
         let mut ready_time = false;
 
@@ -212,7 +223,13 @@ impl SlideshowManager {
 
         // If the animation just finished parsing in the background, load it.
         if self.current_frame.is_none()
-            && matches!(animation.state, AnimationState::Static(_) | AnimationState::Animated { .. } | AnimationState::Error(_)) {
+            && matches!(
+                animation.state,
+                AnimationState::Static(_)
+                    | AnimationState::Animated { .. }
+                    | AnimationState::Error(_)
+            )
+        {
             self.load_animation(animation)?;
             // Reset frame_elapsed to avoid jumping ahead
             self.frame_elapsed = Duration::ZERO;
@@ -237,11 +254,16 @@ impl SlideshowManager {
         // Advance frames if needed
         if self.frame_elapsed >= current_frame_dur {
             // We need to move to the next frame
-            if let AnimationState::Animated { bytes, format, first_frame } = &animation.state {
+            if let AnimationState::Animated {
+                bytes,
+                format,
+                first_frame,
+            } = &animation.state
+            {
                 // Keep consuming frames as long as we are overdue
                 while self.frame_elapsed >= current_frame_dur {
                     self.frame_elapsed -= current_frame_dur;
-                    
+
                     let mut reached_end = false;
                     let mut tick_err = None;
 
@@ -281,7 +303,7 @@ impl SlideshowManager {
 
                     if reached_end {
                         self.loops_completed += 1;
-                        
+
                         // Check if we should move to the next animation BEFORE restarting decoder
                         if self.should_advance_animation() {
                             self.current_command_idx += 1;
@@ -294,7 +316,7 @@ impl SlideshowManager {
                             self.current_frame = Some(first_frame.clone());
                             self.current_frame_idx = 0;
                             let _ = decoder.next(); // Advance iterator past the first frame
-                            
+
                             self.active_decoder = Some(decoder);
                         } else {
                             if self.stored_state.is_none() {
@@ -346,7 +368,7 @@ impl SlideshowManager {
     pub fn current_frame_index(&self) -> usize {
         self.current_frame_idx
     }
-    
+
     pub fn current_frame(&self) -> Option<&Frame> {
         self.current_frame.as_ref()
     }
@@ -365,7 +387,7 @@ mod tests {
     // Helper to test iterator directly instead of building WebP bytes
     fn create_test_animation() -> Animation {
         // We'll just test with Static frames or similar if possible.
-        // Actually, since LazyDecoder requires valid image bytes, we can't easily mock `Animated` state 
+        // Actually, since LazyDecoder requires valid image bytes, we can't easily mock `Animated` state
         // without providing a valid gif/webp file.
         // For unit tests, we'll use `Static` to test basic timing logic.
         Animation {

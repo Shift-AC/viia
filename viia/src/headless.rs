@@ -10,7 +10,10 @@ use viia_core::{
     collect_image_paths, parse_slideshow_spec, update_prefetch,
 };
 
-pub fn run_headless(paths: Vec<PathBuf>, prefetch: usize) -> Result<(), Box<dyn std::error::Error>> {
+pub fn run_headless(
+    paths: Vec<PathBuf>,
+    prefetch: usize,
+) -> Result<(), Box<dyn std::error::Error>> {
     let (resolved_paths, start_idx) = collect_image_paths(paths);
     let mut animations = Vec::new();
     for path in resolved_paths {
@@ -98,7 +101,8 @@ pub fn run_headless(paths: Vec<PathBuf>, prefetch: usize) -> Result<(), Box<dyn 
                                 );
                                 update_prefetch(&mut animations, current_idx, prefetch);
                                 if let Err(e) = manager.load_animation(&animations[current_idx]) {
-                                    animations[current_idx].state = viia_core::AnimationState::Error(e);
+                                    animations[current_idx].state =
+                                        viia_core::AnimationState::Error(e);
                                 }
                                 last_rendered_frame = usize::MAX;
                             }
@@ -114,7 +118,8 @@ pub fn run_headless(paths: Vec<PathBuf>, prefetch: usize) -> Result<(), Box<dyn 
                                 );
                                 update_prefetch(&mut animations, current_idx, prefetch);
                                 if let Err(e) = manager.load_animation(&animations[current_idx]) {
-                                    animations[current_idx].state = viia_core::AnimationState::Error(e);
+                                    animations[current_idx].state =
+                                        viia_core::AnimationState::Error(e);
                                 }
                                 last_rendered_frame = usize::MAX;
                             }
@@ -141,8 +146,11 @@ pub fn run_headless(paths: Vec<PathBuf>, prefetch: usize) -> Result<(), Box<dyn 
                                 if let Ok(cmds) = parse_slideshow_spec(&spec, parent_dir) {
                                     if !cmds.is_empty() {
                                         info!("Starting slideshow with spec: {}", spec);
-                                        if let Err(e) = manager.set_commands(cmds, &animations[current_idx]) {
-                                            animations[current_idx].state = viia_core::AnimationState::Error(e);
+                                        if let Err(e) =
+                                            manager.set_commands(cmds, &animations[current_idx])
+                                        {
+                                            animations[current_idx].state =
+                                                viia_core::AnimationState::Error(e);
                                         }
                                         last_rendered_frame = usize::MAX;
                                     }
@@ -195,8 +203,8 @@ pub fn run_headless(paths: Vec<PathBuf>, prefetch: usize) -> Result<(), Box<dyn 
 
         let frame_idx = manager.current_frame_index();
         let has_frame = manager.current_frame().is_some();
-        let needs_render = current_idx != last_rendered_idx 
-            || frame_idx != last_rendered_frame 
+        let needs_render = current_idx != last_rendered_idx
+            || frame_idx != last_rendered_frame
             || (!last_rendered_had_frame && has_frame);
 
         if needs_render {
@@ -205,7 +213,7 @@ pub fn run_headless(paths: Vec<PathBuf>, prefetch: usize) -> Result<(), Box<dyn 
                 viia_core::AnimationState::Animated { .. } => "?".to_string(),
                 _ => "0".to_string(),
             };
-            
+
             if let viia_core::AnimationState::Error(err) = &animations[current_idx].state {
                 error!("Failed to render image: {}", err);
             } else if manager.current_frame().is_some() {

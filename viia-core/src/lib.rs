@@ -1,7 +1,7 @@
 pub mod cache;
-pub mod lazy_decoder;
 pub mod image_loader;
 pub mod internal_shell;
+pub mod lazy_decoder;
 pub mod resizer;
 pub mod slideshow_parser;
 pub mod state_machine;
@@ -30,21 +30,22 @@ pub fn collect_image_paths(paths: Vec<PathBuf>) -> (Vec<PathBuf>, usize) {
             siblings.push(target_file.clone());
             for entry in entries.flatten() {
                 if let Ok(file_type) = entry.file_type()
-                    && file_type.is_file() {
-                        let path = entry.path();
-                        if path != *target_file
-                            && let Some(ext) = path
-                                .extension()
-                                .and_then(|e| e.to_str())
-                                .map(|s| s.to_lowercase())
-                            && matches!(
-                                ext.as_str(),
-                                "jpg" | "jpeg" | "png" | "gif" | "webp" | "bmp"
-                            )
-                        {
-                            siblings.push(path);
-                        }
+                    && file_type.is_file()
+                {
+                    let path = entry.path();
+                    if path != *target_file
+                        && let Some(ext) = path
+                            .extension()
+                            .and_then(|e| e.to_str())
+                            .map(|s| s.to_lowercase())
+                        && matches!(
+                            ext.as_str(),
+                            "jpg" | "jpeg" | "png" | "gif" | "webp" | "bmp"
+                        )
+                    {
+                        siblings.push(path);
                     }
+                }
             }
             if let Some(idx) = siblings.iter().position(|p| p == target_file) {
                 start_idx = idx;
@@ -60,20 +61,21 @@ pub fn collect_image_paths(paths: Vec<PathBuf>) -> (Vec<PathBuf>, usize) {
                     let mut dir_paths = Vec::new();
                     for entry in entries.flatten() {
                         if let Ok(file_type) = entry.file_type()
-                            && file_type.is_file() {
-                                let p = entry.path();
-                                if let Some(ext) = p
-                                    .extension()
-                                    .and_then(|e| e.to_str())
-                                    .map(|s| s.to_lowercase())
-                                    && matches!(
-                                        ext.as_str(),
-                                        "jpg" | "jpeg" | "png" | "gif" | "webp" | "bmp"
-                                    )
-                                {
-                                    dir_paths.push(p);
-                                }
+                            && file_type.is_file()
+                        {
+                            let p = entry.path();
+                            if let Some(ext) = p
+                                .extension()
+                                .and_then(|e| e.to_str())
+                                .map(|s| s.to_lowercase())
+                                && matches!(
+                                    ext.as_str(),
+                                    "jpg" | "jpeg" | "png" | "gif" | "webp" | "bmp"
+                                )
+                            {
+                                dir_paths.push(p);
                             }
+                        }
                     }
                     resolved_paths.extend(dir_paths);
                 }
@@ -90,10 +92,10 @@ pub fn update_prefetch(animations: &mut [Animation], current_idx: usize, prefetc
     if len == 0 {
         return;
     }
-    
+
     let keep_forward = prefetch;
     let keep_backward = (prefetch / 2).max(1);
-    
+
     // First, unparse everything outside the window
     for (i, anim) in animations.iter_mut().enumerate() {
         let is_in_window = if keep_forward + 1 + keep_backward >= len {
@@ -104,23 +106,23 @@ pub fn update_prefetch(animations: &mut [Animation], current_idx: usize, prefetc
             } else {
                 len - current_idx + i
             };
-            
+
             let backward_dist = if current_idx >= i {
                 current_idx - i
             } else {
                 len - i + current_idx
             };
-            
+
             forward_dist <= keep_forward || backward_dist <= keep_backward
         };
-        
+
         if !is_in_window {
             anim.unparse();
         } else {
             anim.poll_parse();
         }
     }
-    
+
     // Then, parse the first unparsed image in the window
     // We prioritize images closer to current_idx
     let mut parsed_one = false;
@@ -136,7 +138,7 @@ pub fn update_prefetch(animations: &mut [Animation], current_idx: usize, prefetc
             break;
         }
     }
-    
+
     if !parsed_one {
         for offset in 1..=keep_backward {
             if offset >= len {

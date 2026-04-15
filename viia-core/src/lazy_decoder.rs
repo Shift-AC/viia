@@ -19,7 +19,10 @@ pub struct LazyDecoder {
 }
 
 impl LazyDecoder {
-    pub fn new(bytes: Arc<Vec<u8>>, format: ImageFormat) -> Result<Self, crate::image_loader::EngineError> {
+    pub fn new(
+        bytes: Arc<Vec<u8>>,
+        format: ImageFormat,
+    ) -> Result<Self, crate::image_loader::EngineError> {
         let cursor = Cursor::new(ArcBytes(bytes));
 
         let iter: Box<dyn Iterator<Item = ImageResult<Frame>>> = match format {

@@ -13,7 +13,7 @@ pub fn run() {
     #[cfg(all(windows, feature = "gui"))]
     if cli.ui == cli::UiMode::Gui {
         unsafe {
-            use windows_sys::Win32::System::Console::{GetConsoleProcessList, FreeConsole};
+            use windows_sys::Win32::System::Console::{FreeConsole, GetConsoleProcessList};
             let mut pids = [0; 2];
             let num = GetConsoleProcessList(pids.as_mut_ptr(), 2);
             // If num is 1, this process is the only one attached to the console.

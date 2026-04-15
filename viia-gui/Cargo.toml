@@ -17,3 +17,5 @@ clap = "4.6.0"
 [build-dependencies]
 tauri-build = "2.0.0"
 chrono = "0.4"
+ico = "0.4"
+image = { version = "0.25.10", default-features = false, features = ["png"] }

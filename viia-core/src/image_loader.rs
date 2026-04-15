@@ -1,6 +1,6 @@
 use std::path::PathBuf;
-use std::time::Duration;
 use std::sync::Arc;
+use std::time::Duration;
 use thiserror::Error;
 
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -31,7 +31,7 @@ pub enum AnimationState {
     Skimmed,
     /// Currently parsing the image in a background thread.
     /// The AtomicBool acts as a cancellation token.
-    Parsing(Arc<(std::sync::Mutex<Option<Result<AnimationState, String>>>, std::sync::Condvar)>, Arc<AtomicBool>),
+    Parsing(ParseState, Arc<AtomicBool>),
     /// A single-frame static image fully parsed into memory.
     Static(Frame),
     /// An animated image file, keeping compressed bytes in memory for lazy decoding.
@@ -43,6 +43,11 @@ pub enum AnimationState {
     /// Failed to parse the image
     Error(String),
 }
+
+type ParseState = Arc<(
+    std::sync::Mutex<Option<Result<AnimationState, String>>>,
+    std::sync::Condvar,
+)>;
 
 /// A normalized representation of either a static image or an animation.
 /// To support fast deferred loading for GUI integration, it supports two states: Skimmed and Parsed.
@@ -67,23 +72,29 @@ impl Animation {
     /// Fully parses the animation, loading all frames into memory.
     /// If it's already parsed, this is a no-op.
     pub fn parse(&mut self) -> Result<(), EngineError> {
-        if matches!(self.state, AnimationState::Static(_) | AnimationState::Animated { .. } | AnimationState::Parsing(_, _) | AnimationState::Error(_)) {
+        if matches!(
+            self.state,
+            AnimationState::Static(_)
+                | AnimationState::Animated { .. }
+                | AnimationState::Parsing(_, _)
+                | AnimationState::Error(_)
+        ) {
             return Ok(());
         }
 
         let result_arc = Arc::new((std::sync::Mutex::new(None), std::sync::Condvar::new()));
         let result_arc_clone = Arc::clone(&result_arc);
-        
+
         let cancel_token = Arc::new(AtomicBool::new(false));
         let cancel_token_clone = Arc::clone(&cancel_token);
-        
+
         let source_path = self.source_path.clone();
 
         std::thread::spawn(move || {
             let result = (|| -> Result<AnimationState, EngineError> {
                 let mut file = std::fs::File::open(&source_path)
                     .map_err(|e| EngineError::ImageLoadError(image::ImageError::IoError(e)))?;
-                
+
                 if cancel_token_clone.load(Ordering::Relaxed) {
                     return Err(EngineError::UnsupportedFormat); // Treat cancellation as a generic early exit
                 }
@@ -107,7 +118,9 @@ impl Animation {
                             image::ImageFormat::WebP => {
                                 let mut peek_file = std::fs::File::open(&source_path).unwrap();
                                 let peek_reader = std::io::BufReader::new(&mut peek_file);
-                                if let Ok(decoder) = image::codecs::webp::WebPDecoder::new(peek_reader) {
+                                if let Ok(decoder) =
+                                    image::codecs::webp::WebPDecoder::new(peek_reader)
+                                {
                                     decoder.has_animation()
                                 } else {
                                     false
@@ -127,20 +140,25 @@ impl Animation {
                         }
 
                         // For animations, we just read the file bytes into memory
-                        use std::io::{Seek, Read};
-                        file.seek(std::io::SeekFrom::Start(0))
-                            .map_err(|e| EngineError::ImageLoadError(image::ImageError::IoError(e)))?;
-                        
+                        use std::io::{Read, Seek};
+                        file.seek(std::io::SeekFrom::Start(0)).map_err(|e| {
+                            EngineError::ImageLoadError(image::ImageError::IoError(e))
+                        })?;
+
                         let mut buffer = Vec::new();
-                        file.read_to_end(&mut buffer)
-                            .map_err(|e| EngineError::ImageLoadError(image::ImageError::IoError(e)))?;
-                        
+                        file.read_to_end(&mut buffer).map_err(|e| {
+                            EngineError::ImageLoadError(image::ImageError::IoError(e))
+                        })?;
+
                         if cancel_token_clone.load(Ordering::Relaxed) {
                             return Err(EngineError::UnsupportedFormat);
                         }
 
                         // Do a quick validation check and cache the first frame
-                        let mut decoder = crate::lazy_decoder::LazyDecoder::new(Arc::new(buffer.clone()), format)?;
+                        let mut decoder = crate::lazy_decoder::LazyDecoder::new(
+                            Arc::new(buffer.clone()),
+                            format,
+                        )?;
                         let first_frame = match decoder.next() {
                             Some(Ok(image_frame)) => {
                                 let (num, denom) = image_frame.delay().numer_denom_ms();
@@ -177,7 +195,7 @@ impl Animation {
                     Ok(state) => Ok(state),
                     Err(e) => Err(e.to_string()),
                 };
-                
+
                 let (lock, cvar) = &*result_arc_clone;
                 if let Ok(mut lock) = lock.lock() {
                     *lock = Some(final_state);
@@ -195,7 +213,10 @@ impl Animation {
         if let AnimationState::Parsing(_, cancel_token) = &self.state {
             cancel_token.store(true, Ordering::Relaxed);
             self.state = AnimationState::Skimmed;
-        } else if matches!(self.state, AnimationState::Static(_) | AnimationState::Animated { .. } | AnimationState::Error(_)) {
+        } else if matches!(
+            self.state,
+            AnimationState::Static(_) | AnimationState::Animated { .. } | AnimationState::Error(_)
+        ) {
             self.state = AnimationState::Skimmed;
         }
     }
@@ -207,7 +228,8 @@ impl Animation {
         if let AnimationState::Parsing(arc, _) = &self.state {
             let (lock, _) = &**arc;
             if let Ok(mut lock_guard) = lock.try_lock()
-                && let Some(result) = lock_guard.take() {
+                && let Some(result) = lock_guard.take()
+            {
                 new_state = Some(result);
             }
         }
@@ -222,7 +244,7 @@ impl Animation {
                         // but AnimationState::Static doesn't carry format. The `parse` method sets it before.
                     }
                     self.state = state;
-                },
+                }
                 Err(e) => self.state = AnimationState::Error(e),
             }
             return true;
@@ -253,7 +275,7 @@ impl Animation {
                         self.format = *format;
                     }
                     self.state = state;
-                },
+                }
                 Err(e) => self.state = AnimationState::Error(e),
             }
         }
