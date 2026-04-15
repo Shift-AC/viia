@@ -1,5 +1,4 @@
 use clap::{Parser, ValueEnum};
-use std::path::PathBuf;
 
 /// The user interface to use
 #[derive(Debug, Clone, PartialEq, Eq, ValueEnum)]
@@ -32,7 +31,7 @@ pub struct Cli {
 
     /// List of paths to image files or directories
     #[arg(name = "PATHS")]
-    pub paths: Vec<PathBuf>,
+    pub paths: Vec<String>,
 }
 
 #[cfg(test)]
@@ -53,7 +52,7 @@ mod tests {
         let cli = Cli::try_parse_from(args).unwrap();
         assert_eq!(cli.ui, UiMode::Gui);
         assert_eq!(cli.paths.len(), 1);
-        assert_eq!(cli.paths[0], PathBuf::from("dir/"));
+        assert_eq!(cli.paths[0], "dir/".to_string());
     }
 
     #[test]

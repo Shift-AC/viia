@@ -1,6 +1,6 @@
+use crate::MediaUrl;
 use crate::cache::{CacheKey, FrameCache};
 use image::RgbaImage;
-use std::path::PathBuf;
 use std::sync::Arc;
 
 #[test]
@@ -9,7 +9,7 @@ fn test_cache_insert_and_get() {
 
     let img = Arc::new(RgbaImage::new(10, 10));
     let key = CacheKey {
-        path: PathBuf::from("test.png"),
+        source: MediaUrl::parse_url("file:///test.png").unwrap(),
         frame_index: 0,
         target_width: 10,
         target_height: 10,
@@ -27,7 +27,7 @@ fn test_get_or_resize() {
     let original = RgbaImage::new(100, 200);
 
     let key = CacheKey {
-        path: PathBuf::from("test.png"),
+        source: MediaUrl::parse_url("file:///test.png").unwrap(),
         frame_index: 0,
         target_width: 50,
         target_height: 50,

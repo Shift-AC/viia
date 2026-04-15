@@ -73,7 +73,7 @@ impl SlideshowManager {
         let mut load_err = None;
 
         match &animation.state {
-            AnimationState::Static(frame) => {
+            AnimationState::Static { frame, .. } => {
                 self.current_frame = Some(frame.clone());
             }
             AnimationState::Animated {
@@ -117,7 +117,7 @@ impl SlideshowManager {
         }
 
         let cmd = self.get_current_command().clone();
-        info!("Loaded animation: {:?}", animation.source_path);
+        info!("Loaded animation: {}", animation.source.as_str());
         info!("Current command: {:?}", cmd);
 
         if self.state == PlaybackState::Playing {
@@ -225,7 +225,7 @@ impl SlideshowManager {
         if self.current_frame.is_none()
             && matches!(
                 animation.state,
-                AnimationState::Static(_)
+                AnimationState::Static { .. }
                     | AnimationState::Animated { .. }
                     | AnimationState::Error(_)
             )
@@ -327,7 +327,7 @@ impl SlideshowManager {
                         }
                     }
                 }
-            } else if let AnimationState::Static(_) = &animation.state {
+            } else if let AnimationState::Static { .. } = &animation.state {
                 // For static images, one "loop" is just the duration of the single frame (default 100ms)
                 while self.frame_elapsed >= current_frame_dur {
                     self.frame_elapsed -= current_frame_dur;
@@ -381,7 +381,7 @@ impl SlideshowManager {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{Animation, AnimationState, Frame};
+    use crate::{Animation, AnimationState, Frame, MediaUrl};
     use image::RgbaImage;
 
     // Helper to test iterator directly instead of building WebP bytes
@@ -391,12 +391,15 @@ mod tests {
         // without providing a valid gif/webp file.
         // For unit tests, we'll use `Static` to test basic timing logic.
         Animation {
-            source_path: std::path::PathBuf::from("test.png"),
+            source: MediaUrl::parse_url("file:///test.png").unwrap(),
             format: image::ImageFormat::Png,
-            state: AnimationState::Static(Frame {
-                data: RgbaImage::new(1, 1),
-                duration: Duration::from_millis(500),
-            }),
+            state: AnimationState::Static {
+                frame: Frame {
+                    data: RgbaImage::new(1, 1),
+                    duration: Duration::from_millis(500),
+                },
+                format: image::ImageFormat::Png,
+            },
         }
     }
 

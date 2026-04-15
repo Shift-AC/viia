@@ -14,17 +14,42 @@ use ratatui::{
     widgets::{Block, Borders, Clear, Paragraph},
 };
 use ratatui_image::{Resize, picker::Picker};
+use regex::Regex;
 use std::io::{self, Stdout};
-use std::path::PathBuf;
 use std::time::{Duration, Instant};
 use tracing::{debug, error, warn};
 use tui_logger::{TuiLoggerWidget, TuiWidgetState};
 use viia_core::{
-    Animation, FrameCache, SlideshowManager, TimingCommand, collect_image_paths, update_prefetch,
+    Animation, FrameCache, MediaUrl, SlideshowManager, TimingCommand, resolve_media_urls,
+    shell_index_to_zero_based, update_prefetch, zero_based_to_shell_index,
 };
 
+fn display_source_name(source: &MediaUrl) -> String {
+    source
+        .file_name()
+        .unwrap_or_else(|| source.as_str().to_string())
+}
+
+fn match_file_names(
+    animations: &[Animation],
+    pattern: &str,
+) -> Result<Vec<(usize, String)>, regex::Error> {
+    let regex = Regex::new(pattern)?;
+    Ok(animations
+        .iter()
+        .enumerate()
+        .map(|(idx, animation)| {
+            (
+                zero_based_to_shell_index(idx),
+                display_source_name(&animation.source),
+            )
+        })
+        .filter(|(_, name)| regex.is_match(name))
+        .collect())
+}
+
 /// Main entrypoint for the TUI mode
-pub fn run_tui(paths: Vec<PathBuf>, prefetch: usize) -> Result<(), Box<dyn std::error::Error>> {
+pub fn run_tui(inputs: Vec<String>, prefetch: usize) -> Result<(), Box<dyn std::error::Error>> {
     // Setup terminal
     enable_raw_mode()?;
     let mut stdout = io::stdout();
@@ -50,10 +75,15 @@ pub fn run_tui(paths: Vec<PathBuf>, prefetch: usize) -> Result<(), Box<dyn std::
     picker.set_background_color(bg_rgba);
     let cache = FrameCache::default();
 
-    let (resolved_paths, start_idx) = collect_image_paths(paths);
+    let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+    let urls = inputs
+        .iter()
+        .map(|input| MediaUrl::from_input(input, &cwd))
+        .collect::<Result<Vec<_>, _>>()?;
+    let (resolved_urls, start_idx) = resolve_media_urls(urls)?;
     let mut animations = Vec::new();
-    for path in resolved_paths {
-        if let Ok(anim) = Animation::skim(path) {
+    for url in resolved_urls {
+        if let Ok(anim) = Animation::skim(url) {
             animations.push(anim);
         }
     }
@@ -177,7 +207,7 @@ fn run_loop(
                     current_idx = (current_idx + 1) % animations.len();
                     tracing::info!(
                         "Auto-advancing to next image: {}",
-                        animations[current_idx].source_path.display()
+                        animations[current_idx].source.as_str()
                     );
                     update_prefetch(&mut animations, current_idx, prefetch);
                     if let Err(e) = manager.load_animation(&animations[current_idx]) {
@@ -210,7 +240,7 @@ fn run_loop(
                             (frame.data.height() as f32 * scale / 100.0).max(1.0) as u32;
 
                         let key = viia_core::CacheKey {
-                            path: animations[current_idx].source_path.clone(),
+                            source: animations[current_idx].source.clone(),
                             frame_index: frame_idx,
                             target_width: new_width,
                             target_height: new_height,
@@ -288,7 +318,10 @@ fn run_loop(
                             " [{}/{}] {}{} | Press 'q' to quit, Space to pause, Right next, Left prev, ':' command ",
                             current_idx + 1,
                             animations.len(),
-                            animations[current_idx].source_path.file_name().unwrap_or_default().to_string_lossy(),
+                            animations[current_idx]
+                                .source
+                                .file_name()
+                                .unwrap_or_else(|| "unknown".to_string()),
                             error_msg
                         ))
                         .style(Style::default().bg(Color::DarkGray).fg(Color::White))
@@ -326,7 +359,7 @@ fn run_loop(
                                     current_idx = (current_idx + 1) % animations.len();
                                     tracing::info!(
                                         "Manually navigated to next image: {}",
-                                        animations[current_idx].source_path.display()
+                                        animations[current_idx].source.as_str()
                                     );
                                     update_prefetch(&mut animations, current_idx, prefetch);
                                     if let Err(e) = manager.load_animation(&animations[current_idx])
@@ -344,7 +377,7 @@ fn run_loop(
                                     }
                                     tracing::info!(
                                         "Manually navigated to previous image: {}",
-                                        animations[current_idx].source_path.display()
+                                        animations[current_idx].source.as_str()
                                     );
                                     update_prefetch(&mut animations, current_idx, prefetch);
                                     if let Err(e) = manager.load_animation(&animations[current_idx])
@@ -379,9 +412,7 @@ fn run_loop(
                                                             (current_idx + 1) % animations.len();
                                                         tracing::info!(
                                                             "Navigated to next image: {}",
-                                                            animations[current_idx]
-                                                                .source_path
-                                                                .display()
+                                                            animations[current_idx].source.as_str()
                                                         );
                                                         update_prefetch(
                                                             &mut animations,
@@ -404,9 +435,7 @@ fn run_loop(
                                                         }
                                                         tracing::info!(
                                                             "Navigated to previous image: {}",
-                                                            animations[current_idx]
-                                                                .source_path
-                                                                .display()
+                                                            animations[current_idx].source.as_str()
                                                         );
                                                         update_prefetch(
                                                             &mut animations,
@@ -421,13 +450,78 @@ fn run_loop(
                                                         }
                                                         last_rendered_frame = usize::MAX;
                                                     }
-                                                    viia_core::RuntimeAction::ShowCurrent => {
+                                                    viia_core::RuntimeAction::Goto { index } => {
+                                                        if let Some(target_idx) = index {
+                                                            let zero_based_idx = match shell_index_to_zero_based(target_idx) {
+                                                                Ok(index) => index,
+                                                                Err(err) => {
+                                                                    error!("{}", err);
+                                                                    continue;
+                                                                }
+                                                            };
+                                                            if zero_based_idx >= animations.len() {
+                                                                error!(
+                                                                    "File index {} is out of range for file list of length {}",
+                                                                    target_idx,
+                                                                    animations.len()
+                                                                );
+                                                                continue;
+                                                            }
+                                                            current_idx = zero_based_idx;
+                                                            update_prefetch(
+                                                                &mut animations,
+                                                                current_idx,
+                                                                prefetch,
+                                                            );
+                                                            if let Err(e) = manager.load_animation(
+                                                                &animations[current_idx],
+                                                            ) {
+                                                                animations[current_idx].state =
+                                                                    viia_core::AnimationState::Error(e);
+                                                            }
+                                                            last_rendered_frame = usize::MAX;
+                                                        }
                                                         tracing::info!(
-                                                            "Current image: {}",
-                                                            animations[current_idx]
-                                                                .source_path
-                                                                .display()
+                                                            "Current image [{}]: {}",
+                                                            zero_based_to_shell_index(current_idx),
+                                                            animations[current_idx].source.as_str()
                                                         );
+                                                    }
+                                                    viia_core::RuntimeAction::Match { pattern } => {
+                                                        match match_file_names(
+                                                            &animations,
+                                                            &pattern,
+                                                        ) {
+                                                            Ok(names) => {
+                                                                tracing::info!(
+                                                                    "Matching current file list with regex: {}",
+                                                                    pattern
+                                                                );
+                                                                if names.is_empty() {
+                                                                    tracing::info!(
+                                                                        "No files matched regex: {}",
+                                                                        pattern
+                                                                    );
+                                                                } else {
+                                                                    for (idx, name) in &names {
+                                                                        tracing::info!(
+                                                                            "{} {}", idx, name
+                                                                        );
+                                                                    }
+                                                                    tracing::info!(
+                                                                        "Matched {} file(s) for regex: {}",
+                                                                        names.len(),
+                                                                        pattern
+                                                                    );
+                                                                }
+                                                            }
+                                                            Err(err) => {
+                                                                error!(
+                                                                    "Invalid regex '{}': {}",
+                                                                    pattern, err
+                                                                );
+                                                            }
+                                                        }
                                                     }
                                                     viia_core::RuntimeAction::Dimension { dim } => {
                                                         tracing::info!(
@@ -448,9 +542,15 @@ fn run_loop(
                                                         cmd,
                                                     } => {
                                                         let spec = cmd.join(" ");
-                                                        let parent_dir = animations[current_idx]
-                                                            .source_path
-                                                            .parent()
+                                                        let parent_dir_path = animations
+                                                            [current_idx]
+                                                            .source
+                                                            .to_file_path()
+                                                            .and_then(|p| {
+                                                                p.parent().map(|x| x.to_path_buf())
+                                                            });
+                                                        let parent_dir = parent_dir_path
+                                                            .as_deref()
                                                             .unwrap_or(std::path::Path::new(""));
                                                         if let Ok(cmds) =
                                                             viia_core::parse_slideshow_spec(
@@ -540,4 +640,51 @@ fn run_loop(
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs::File;
+    use tempfile::tempdir;
+
+    fn skim_animation(path: &std::path::Path) -> Animation {
+        let source = MediaUrl::from_abs_path(path).unwrap();
+        Animation::skim(source).unwrap()
+    }
+
+    #[test]
+    fn test_match_file_names_matches_file_names_only() {
+        let dir = tempdir().unwrap();
+        let cat = dir.path().join("cat-01.png");
+        let dog = dir.path().join("dog-01.png");
+        let cat_jpg = dir.path().join("cat-02.jpg");
+        File::create(&cat).unwrap();
+        File::create(&dog).unwrap();
+        File::create(&cat_jpg).unwrap();
+
+        let animations = vec![
+            skim_animation(&cat),
+            skim_animation(&dog),
+            skim_animation(&cat_jpg),
+        ];
+
+        let names = match_file_names(&animations, r"^cat.*\.(png|jpg)$").unwrap();
+        assert_eq!(
+            names,
+            vec![(1, "cat-01.png".to_string()), (3, "cat-02.jpg".to_string())]
+        );
+    }
+
+    #[test]
+    fn test_match_file_names_rejects_invalid_regex() {
+        let dir = tempdir().unwrap();
+        let image = dir.path().join("image.png");
+        File::create(&image).unwrap();
+
+        let animations = vec![skim_animation(&image)];
+
+        let err = match_file_names(&animations, "(").unwrap_err();
+        assert!(!err.to_string().is_empty());
+    }
 }

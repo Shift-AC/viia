@@ -2,15 +2,24 @@ pub mod cache;
 pub mod image_loader;
 pub mod internal_shell;
 pub mod lazy_decoder;
+pub mod media_url;
 pub mod resizer;
+pub mod sftp_transport;
 pub mod slideshow_parser;
+pub mod source_access;
+pub mod source_resolver;
 pub mod state_machine;
 
 pub use cache::{CacheKey, FrameCache};
 pub use image_loader::{Animation, AnimationState, EngineError, Frame};
-pub use internal_shell::{InternalCommand, RuntimeAction, ZoomMode};
+pub use internal_shell::{
+    InternalCommand, RuntimeAction, ZoomMode, shell_index_to_zero_based,
+    zero_based_to_shell_index,
+};
+pub use media_url::MediaUrl;
 pub use resizer::resize_image;
 pub use slideshow_parser::{ParserError, TimingCommand, parse_slideshow_spec};
+pub use source_resolver::resolve_media_urls;
 pub use state_machine::{PlaybackState, SlideshowManager};
 
 use std::fs;

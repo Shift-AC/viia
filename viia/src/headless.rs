@@ -1,23 +1,74 @@
 use std::io::{self, BufRead};
-use std::path::PathBuf;
 use std::sync::mpsc;
 use std::thread;
 use std::time::{Duration, Instant};
 
+use regex::Regex;
 use tracing::{error, info};
 use viia_core::{
-    Animation, InternalCommand, RuntimeAction, SlideshowManager, TimingCommand,
-    collect_image_paths, parse_slideshow_spec, update_prefetch,
+    Animation, InternalCommand, MediaUrl, RuntimeAction, SlideshowManager, TimingCommand,
+    parse_slideshow_spec, resolve_media_urls, shell_index_to_zero_based, update_prefetch,
+    zero_based_to_shell_index,
 };
 
+fn display_source_name(source: &MediaUrl) -> String {
+    source
+        .file_name()
+        .unwrap_or_else(|| source.as_str().to_string())
+}
+
+fn match_file_names(
+    animations: &[Animation],
+    pattern: &str,
+) -> Result<Vec<(usize, String)>, regex::Error> {
+    let regex = Regex::new(pattern)?;
+    Ok(animations
+        .iter()
+        .enumerate()
+        .map(|(idx, animation)| {
+            (
+                zero_based_to_shell_index(idx),
+                display_source_name(&animation.source),
+            )
+        })
+        .filter(|(_, name)| regex.is_match(name))
+        .collect())
+}
+
+fn goto_index(
+    current_idx: usize,
+    requested_idx: Option<usize>,
+    len: usize,
+) -> Result<usize, String> {
+    match requested_idx {
+        Some(idx) => {
+            let zero_based_idx = shell_index_to_zero_based(idx)?;
+            if zero_based_idx >= len {
+                Err(format!(
+                    "File index {} is out of range for file list of length {}",
+                    idx, len
+                ))
+            } else {
+                Ok(zero_based_idx)
+            }
+        }
+        None => Ok(current_idx),
+    }
+}
+
 pub fn run_headless(
-    paths: Vec<PathBuf>,
+    inputs: Vec<String>,
     prefetch: usize,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let (resolved_paths, start_idx) = collect_image_paths(paths);
+    let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+    let urls = inputs
+        .iter()
+        .map(|input| MediaUrl::from_input(input, &cwd))
+        .collect::<Result<Vec<_>, _>>()?;
+    let (resolved_urls, start_idx) = resolve_media_urls(urls)?;
     let mut animations = Vec::new();
-    for path in resolved_paths {
-        if let Ok(anim) = Animation::skim(path) {
+    for url in resolved_urls {
+        if let Ok(anim) = Animation::skim(url) {
             animations.push(anim);
         }
     }
@@ -97,7 +148,7 @@ pub fn run_headless(
                                 current_idx = (current_idx + 1) % animations.len();
                                 info!(
                                     "Navigated to next image: {}",
-                                    animations[current_idx].source_path.display()
+                                    animations[current_idx].source.as_str()
                                 );
                                 update_prefetch(&mut animations, current_idx, prefetch);
                                 if let Err(e) = manager.load_animation(&animations[current_idx]) {
@@ -114,7 +165,7 @@ pub fn run_headless(
                                 }
                                 info!(
                                     "Navigated to previous image: {}",
-                                    animations[current_idx].source_path.display()
+                                    animations[current_idx].source.as_str()
                                 );
                                 update_prefetch(&mut animations, current_idx, prefetch);
                                 if let Err(e) = manager.load_animation(&animations[current_idx]) {
@@ -123,11 +174,48 @@ pub fn run_headless(
                                 }
                                 last_rendered_frame = usize::MAX;
                             }
-                            RuntimeAction::ShowCurrent => {
-                                info!(
-                                    "Current image: {}",
-                                    animations[current_idx].source_path.display()
-                                );
+                            RuntimeAction::Goto { index } => {
+                                match goto_index(current_idx, index, animations.len()) {
+                                    Ok(target_idx) => {
+                                        current_idx = target_idx;
+                                        info!(
+                                            "Current image [{}]: {}",
+                                            zero_based_to_shell_index(current_idx),
+                                            animations[current_idx].source.as_str()
+                                        );
+                                        update_prefetch(&mut animations, current_idx, prefetch);
+                                        if let Err(e) =
+                                            manager.load_animation(&animations[current_idx])
+                                        {
+                                            animations[current_idx].state =
+                                                viia_core::AnimationState::Error(e);
+                                        }
+                                        last_rendered_frame = usize::MAX;
+                                    }
+                                    Err(err) => error!("{err}"),
+                                }
+                            }
+                            RuntimeAction::Match { pattern } => {
+                                match match_file_names(&animations, &pattern) {
+                                    Ok(names) => {
+                                        info!("Matching current file list with regex: {}", pattern);
+                                        if names.is_empty() {
+                                            info!("No files matched regex: {}", pattern);
+                                        } else {
+                                            for (idx, name) in &names {
+                                                println!("{idx} {name}");
+                                            }
+                                            info!(
+                                                "Matched {} file(s) for regex: {}",
+                                                names.len(),
+                                                pattern
+                                            );
+                                        }
+                                    }
+                                    Err(err) => {
+                                        error!("Invalid regex '{}': {}", pattern, err);
+                                    }
+                                }
                             }
                             RuntimeAction::Dimension { dim } => {
                                 info!("Dimension command received: {:?}", dim);
@@ -139,9 +227,12 @@ pub fn run_headless(
                             }
                             RuntimeAction::StartSlideshow { cmd } => {
                                 let spec = cmd.join(" ");
-                                let parent_dir = animations[current_idx]
-                                    .source_path
-                                    .parent()
+                                let parent_dir_path = animations[current_idx]
+                                    .source
+                                    .to_file_path()
+                                    .and_then(|p| p.parent().map(|x| x.to_path_buf()));
+                                let parent_dir = parent_dir_path
+                                    .as_deref()
                                     .unwrap_or(std::path::Path::new(""));
                                 if let Ok(cmds) = parse_slideshow_spec(&spec, parent_dir) {
                                     if !cmds.is_empty() {
@@ -187,7 +278,7 @@ pub fn run_headless(
                     current_idx = (current_idx + 1) % animations.len();
                     info!(
                         "Auto-advancing to next image: {}",
-                        animations[current_idx].source_path.display()
+                        animations[current_idx].source.as_str()
                     );
                     update_prefetch(&mut animations, current_idx, prefetch);
                     if let Err(e) = manager.load_animation(&animations[current_idx]) {
@@ -209,7 +300,7 @@ pub fn run_headless(
 
         if needs_render {
             let total_frames = match &animations[current_idx].state {
-                viia_core::AnimationState::Static(_) => "1".to_string(),
+                viia_core::AnimationState::Static { .. } => "1".to_string(),
                 viia_core::AnimationState::Animated { .. } => "?".to_string(),
                 _ => "0".to_string(),
             };
@@ -222,7 +313,7 @@ pub fn run_headless(
                     "Rendering frame {}/{} of {}",
                     frame_idx + 1,
                     total_frames,
-                    animations[current_idx].source_path.display()
+                    animations[current_idx].source.as_str()
                 );
             }
             last_rendered_idx = current_idx;
@@ -236,4 +327,73 @@ pub fn run_headless(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs::File;
+    use tempfile::tempdir;
+
+    fn skim_animation(path: &std::path::Path) -> Animation {
+        let source = MediaUrl::from_abs_path(path).unwrap();
+        Animation::skim(source).unwrap()
+    }
+
+    #[test]
+    fn test_match_file_names_matches_file_names_only() {
+        let dir = tempdir().unwrap();
+        let cat = dir.path().join("cat-01.png");
+        let dog = dir.path().join("dog-01.png");
+        let cat_jpg = dir.path().join("cat-02.jpg");
+        File::create(&cat).unwrap();
+        File::create(&dog).unwrap();
+        File::create(&cat_jpg).unwrap();
+
+        let animations = vec![
+            skim_animation(&cat),
+            skim_animation(&dog),
+            skim_animation(&cat_jpg),
+        ];
+
+        let names = match_file_names(&animations, r"^cat.*\.(png|jpg)$").unwrap();
+        assert_eq!(
+            names,
+            vec![(1, "cat-01.png".to_string()), (3, "cat-02.jpg".to_string())]
+        );
+    }
+
+    #[test]
+    fn test_match_file_names_rejects_invalid_regex() {
+        let dir = tempdir().unwrap();
+        let image = dir.path().join("image.png");
+        File::create(&image).unwrap();
+
+        let animations = vec![skim_animation(&image)];
+
+        let err = match_file_names(&animations, "(").unwrap_err();
+        assert!(!err.to_string().is_empty());
+    }
+
+    #[test]
+    fn test_goto_index_uses_current_index_when_omitted() {
+        assert_eq!(goto_index(2, None, 5).unwrap(), 2);
+    }
+
+    #[test]
+    fn test_goto_index_uses_requested_index_when_in_range() {
+        assert_eq!(goto_index(2, Some(5), 5).unwrap(), 4);
+    }
+
+    #[test]
+    fn test_goto_index_rejects_zero_index() {
+        let err = goto_index(2, Some(0), 5).unwrap_err();
+        assert!(err.contains("at least 1"));
+    }
+
+    #[test]
+    fn test_goto_index_rejects_out_of_range_index() {
+        let err = goto_index(2, Some(6), 5).unwrap_err();
+        assert!(err.contains("out of range"));
+    }
 }

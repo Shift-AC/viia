@@ -1,13 +1,13 @@
+use crate::MediaUrl;
 use crate::resizer::resize_image;
 use image::RgbaImage;
 use moka::sync::Cache;
-use std::path::PathBuf;
 use std::sync::Arc;
 
 /// Cache key for resized frames
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct CacheKey {
-    pub path: PathBuf,
+    pub source: MediaUrl,
     pub frame_index: usize,
     pub target_width: u32,
     pub target_height: u32,

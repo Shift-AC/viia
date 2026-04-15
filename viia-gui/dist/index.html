@@ -163,7 +163,7 @@
       #status-msg, #mode-text {
         pointer-events: none;
       }
-      #scale-input {
+      #index-input, #scale-input {
         min-width: 3ch;
         box-sizing: content-box;
         background: rgba(255,255,255,0.1);
@@ -177,10 +177,13 @@
         font-family: inherit;
         transition: background 0.2s, border-color 0.2s;
       }
-      #scale-input:hover {
+      #index-input {
+        text-align: center;
+      }
+      #index-input:hover, #scale-input:hover {
         background: rgba(255,255,255,0.2);
       }
-      #scale-input:focus {
+      #index-input:focus, #scale-input:focus {
         background: rgba(0,0,0,0.5);
         border-color: #555;
       }
@@ -262,7 +265,7 @@
       }
 
       /* Help Overlay */
-      #help-overlay-bg {
+      #help-overlay-bg, #match-overlay-bg {
         position: fixed;
         top: 0; left: 0; right: 0; bottom: 0;
         background: rgba(0, 0, 0, 0.6);
@@ -274,7 +277,7 @@
         align-items: center;
       }
 
-      #help-modal {
+      #help-modal, #match-modal {
         background: rgba(30, 30, 30, 0.95);
         border: 1px solid #444;
         border-radius: 8px;
@@ -286,7 +289,12 @@
         overflow: hidden;
       }
 
-      #help-header {
+      #match-modal {
+        max-width: 900px;
+        max-height: 700px;
+      }
+
+      #help-header, #match-header {
         padding: 16px 24px;
         border-bottom: 1px solid #444;
         display: flex;
@@ -295,13 +303,13 @@
         background: rgba(0, 0, 0, 0.3);
       }
 
-      #help-header h2 {
+      #help-header h2, #match-header h2 {
         margin: 0;
         font-size: 1.25rem;
         font-weight: normal;
       }
 
-      #btn-close-help {
+      #btn-close-help, #btn-close-match {
         background: none;
         border: none;
         color: #aaa;
@@ -312,7 +320,7 @@
         transition: color 0.2s;
       }
 
-      #btn-close-help:hover {
+      #btn-close-help:hover, #btn-close-match:hover {
         color: white;
       }
 
@@ -387,6 +395,49 @@
         color: #ddd;
         margin-top: 2px;
       }
+
+      #match-content {
+        padding: 24px;
+        overflow: auto;
+        flex: 1;
+      }
+
+      #match-summary {
+        margin-bottom: 16px;
+        color: #bbb;
+      }
+
+      #match-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 0.95rem;
+      }
+
+      #match-table th,
+      #match-table td {
+        padding: 10px 12px;
+        border-bottom: 1px solid #333;
+        text-align: left;
+      }
+
+      #match-table th {
+        color: #bbb;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        font-size: 0.8rem;
+        background: rgba(0, 0, 0, 0.2);
+      }
+
+      #match-table td:first-child {
+        width: 110px;
+        font-family: monospace;
+        color: #569cd6;
+      }
+
+      .match-empty {
+        color: #999;
+        text-align: center;
+      }
     </style>
   </head>
   <body>
@@ -406,6 +457,10 @@
           </div>
           <div id="overlay-content">
           <div id="status-container">
+          <span>[</span>
+          <input type="text" id="index-input" title="Current file index" value="0" />
+          <span id="index-total">/0</span>
+          <span>]</span>
           <span id="status-msg">Loading...</span>
           <span>|</span>
           <input type="text" id="scale-input" title="Scale percentage" value="100" />
@@ -548,6 +603,27 @@
       </div>
     </div>
 
+    <div id="match-overlay-bg">
+      <div id="match-modal">
+        <div id="match-header">
+          <h2>Match Results</h2>
+          <button id="btn-close-match" title="Close (Esc)">&times;</button>
+        </div>
+        <div id="match-content">
+          <div id="match-summary">No results.</div>
+          <table id="match-table">
+            <thead>
+              <tr>
+                <th>Index</th>
+                <th>Name</th>
+              </tr>
+            </thead>
+            <tbody id="match-table-body"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
     <script>
       const { invoke } = window.__TAURI__.core;
       const { listen } = window.__TAURI__.event;
@@ -566,6 +642,8 @@
       let activeViewer = viewer;
       const overlay = document.getElementById('overlay');
       const statusMsg = document.getElementById('status-msg');
+      const indexInput = document.getElementById('index-input');
+      const indexTotal = document.getElementById('index-total');
       const scaleInput = document.getElementById('scale-input');
       const modeText = document.getElementById('mode-text');
       const commandPrompt = document.getElementById('command-prompt');
@@ -573,17 +651,24 @@
       const helpOverlayBg = document.getElementById('help-overlay-bg');
       const btnCloseHelp = document.getElementById('btn-close-help');
       const helpTerminalCommands = document.getElementById('help-terminal-commands');
+      const matchOverlayBg = document.getElementById('match-overlay-bg');
+      const btnCloseMatch = document.getElementById('btn-close-match');
+      const matchSummary = document.getElementById('match-summary');
+      const matchTableBody = document.getElementById('match-table-body');
 
       let currentScale = 1.0;
       let currentMode = 'shrink'; // Track current zoom mode ('fit', 'shrink', or fixed number)
       let isDragging = false;
       let isHelpOpen = false;
+      let isMatchOpen = false;
       let startX, startY, scrollLeft, scrollTop;
 
       let tempZoomScale = null;
       let lastReceivedZoomMode = null;
       let currentImagePath = null;
       let currentStatusMsg = "Loading...";
+      let currentStatusIndex = 1;
+      let currentStatusTotal = 1;
       let isBursting = false;
 
       // Helper to calculate the *real* scale of the image relative to its natural size
@@ -629,6 +714,11 @@
         }
 
         statusMsg.innerText = currentStatusMsg;
+        if (document.activeElement !== indexInput) {
+          indexInput.value = String(currentStatusIndex);
+          indexInput.style.width = Math.max(3, String(Math.max(currentStatusIndex, currentStatusTotal)).length) + 'ch';
+        }
+        indexTotal.innerText = `/${Math.max(0, currentStatusTotal)}`;
         if (document.activeElement !== scaleInput) {
           scaleInput.value = scaleVal;
           scaleInput.style.width = Math.max(3, String(scaleVal).length) + 'ch';
@@ -703,7 +793,7 @@
           }
           e.target.blur();
         } else if (e.key === 'Escape') {
-          updateOverlay();
+          e.preventDefault();
           e.target.blur();
         }
       });
@@ -983,7 +1073,65 @@
         helpOverlayBg.style.display = 'none';
       }
 
+      function closeMatchResults() {
+        isMatchOpen = false;
+        matchOverlayBg.style.display = 'none';
+      }
+
       btnCloseHelp.addEventListener('click', closeHelp);
+      btnCloseMatch.addEventListener('click', closeMatchResults);
+      matchOverlayBg.addEventListener('click', (e) => {
+        if (e.target === matchOverlayBg) {
+          closeMatchResults();
+        }
+      });
+
+      function showMatchResults(payload) {
+        matchTableBody.innerHTML = '';
+
+        const rows = payload.rows || [];
+        matchSummary.textContent = `Pattern: ${payload.pattern} | ${rows.length} match(es)`;
+
+        if (rows.length === 0) {
+          const row = document.createElement('tr');
+          const cell = document.createElement('td');
+          cell.colSpan = 2;
+          cell.className = 'match-empty';
+          cell.textContent = 'No files matched.';
+          row.appendChild(cell);
+          matchTableBody.appendChild(row);
+        } else {
+          for (const result of rows) {
+            const row = document.createElement('tr');
+            const indexCell = document.createElement('td');
+            indexCell.textContent = String(result.index);
+            const nameCell = document.createElement('td');
+            nameCell.textContent = result.name;
+            row.appendChild(indexCell);
+            row.appendChild(nameCell);
+            matchTableBody.appendChild(row);
+          }
+        }
+
+        isMatchOpen = true;
+        matchOverlayBg.style.display = 'flex';
+      }
+
+      async function submitIndexChange() {
+        const raw = indexInput.value.trim();
+        if (raw === '') {
+          updateOverlay();
+          return;
+        }
+
+        const parsed = Number(raw);
+        if (!Number.isInteger(parsed) || parsed < 1 || parsed > currentStatusTotal) {
+          updateOverlay();
+          return;
+        }
+
+        await invoke('send_command', { cmd: `g ${parsed}` });
+      }
 
       function parseAndShowHelp(helpText) {
         helpTerminalCommands.innerHTML = '';
@@ -1047,11 +1195,19 @@
       let lastCommandTime = 0;
 
       window.addEventListener('keydown', async (e) => {
-        if (document.activeElement === scaleInput) return;
+        if (document.activeElement === scaleInput || document.activeElement === indexInput) return;
 
         if (isHelpOpen) {
           if (e.key === 'Escape') {
             closeHelp();
+            e.preventDefault();
+          }
+          return;
+        }
+
+        if (isMatchOpen) {
+          if (e.key === 'Escape') {
+            closeMatchResults();
             e.preventDefault();
           }
           return;
@@ -1163,6 +1319,29 @@
       });
 
       document.getElementById('btn-help').addEventListener('click', () => invoke('send_command', { cmd: 'h' }));
+
+      indexInput.addEventListener('focus', () => indexInput.select());
+      let ignoreIndexBlur = false;
+      indexInput.addEventListener('keydown', async (e) => {
+        e.stopPropagation();
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          await submitIndexChange();
+          indexInput.blur();
+        } else if (e.key === 'Escape') {
+          e.preventDefault();
+          ignoreIndexBlur = true;
+          indexInput.value = String(currentStatusIndex);
+          indexInput.blur();
+          ignoreIndexBlur = false;
+          updateOverlay();
+        }
+      });
+      indexInput.addEventListener('blur', async () => {
+        if (!ignoreIndexBlur) {
+          await submitIndexChange();
+        }
+      });
 
       const { getCurrentWindow } = window.__TAURI__.window;
       document.getElementById('btn-minimize').addEventListener('click', () => getCurrentWindow().minimize());
@@ -1408,13 +1587,15 @@
 
         await listen('status', (event) => {
           log("Received status event: " + event.payload);
-          
-          // Split the status payload to remove the " | Playing" or " | Paused" part from the display string
-          const parts = event.payload.split(' | ');
-          currentStatusMsg = parts[0]; // The part before " | "
-          
-          // Use the original payload to determine play/pause icon state
-          if (event.payload.includes("| Playing")) {
+        });
+
+        await listen('status-meta', (event) => {
+          log("Received status-meta event");
+          currentStatusIndex = event.payload.current_index;
+          currentStatusTotal = event.payload.total;
+          currentStatusMsg = event.payload.display_text;
+
+          if (event.payload.playback_state === "Playing") {
             document.getElementById('icon-play').style.display = 'none';
             document.getElementById('icon-pause').style.display = 'block';
           } else {
@@ -1423,6 +1604,11 @@
           }
 
           updateOverlay();
+        });
+
+        await listen('match-results', (event) => {
+          log("Received match-results event");
+          showMatchResults(event.payload);
         });
 
         await listen('ping', (event) => {

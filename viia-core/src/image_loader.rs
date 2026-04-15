@@ -1,18 +1,25 @@
-use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 use thiserror::Error;
 
+use std::sync::OnceLock;
 use std::sync::atomic::{AtomicBool, Ordering};
+
+use crate::MediaUrl;
+use crate::source_access::SourceAccess;
 
 #[derive(Debug, Error)]
 pub enum EngineError {
     #[error("Failed to load image: {0}")]
     ImageLoadError(#[from] image::ImageError),
-    #[error("File not found: {0}")]
-    FileNotFound(PathBuf),
+    #[error("Source not found: {0}")]
+    SourceNotFound(MediaUrl),
     #[error("Unsupported format")]
     UnsupportedFormat,
+    #[error("Unsupported scheme: {0}")]
+    UnsupportedScheme(String),
+    #[error("Source error: {0}")]
+    SourceError(String),
 }
 
 /// A single frame of an animation
@@ -33,7 +40,10 @@ pub enum AnimationState {
     /// The AtomicBool acts as a cancellation token.
     Parsing(ParseState, Arc<AtomicBool>),
     /// A single-frame static image fully parsed into memory.
-    Static(Frame),
+    Static {
+        frame: Frame,
+        format: image::ImageFormat,
+    },
     /// An animated image file, keeping compressed bytes in memory for lazy decoding.
     Animated {
         bytes: Arc<Vec<u8>>,
@@ -52,7 +62,7 @@ type ParseState = Arc<(
 /// A normalized representation of either a static image or an animation.
 /// To support fast deferred loading for GUI integration, it supports two states: Skimmed and Parsed.
 pub struct Animation {
-    pub source_path: PathBuf,
+    pub source: MediaUrl,
     pub format: image::ImageFormat,
     pub state: AnimationState,
 }
@@ -60,10 +70,10 @@ pub struct Animation {
 impl Animation {
     /// Skims a file by only reading its header to determine format.
     /// This is extremely fast and avoids decoding pixels into memory.
-    pub fn skim(path: PathBuf) -> Result<Self, EngineError> {
+    pub fn skim(source: MediaUrl) -> Result<Self, EngineError> {
         // Defer all I/O to parse() for instant startup
         Ok(Self {
-            source_path: path,
+            source,
             format: image::ImageFormat::Png, // Dummy format, will be updated in parse()
             state: AnimationState::Skimmed,
         })
@@ -74,7 +84,7 @@ impl Animation {
     pub fn parse(&mut self) -> Result<(), EngineError> {
         if matches!(
             self.state,
-            AnimationState::Static(_)
+            AnimationState::Static { .. }
                 | AnimationState::Animated { .. }
                 | AnimationState::Parsing(_, _)
                 | AnimationState::Error(_)
@@ -88,20 +98,19 @@ impl Animation {
         let cancel_token = Arc::new(AtomicBool::new(false));
         let cancel_token_clone = Arc::clone(&cancel_token);
 
-        let source_path = self.source_path.clone();
+        let source = self.source.clone();
 
         std::thread::spawn(move || {
             let result = (|| -> Result<AnimationState, EngineError> {
-                let mut file = std::fs::File::open(&source_path)
-                    .map_err(|e| EngineError::ImageLoadError(image::ImageError::IoError(e)))?;
+                let bytes = source_access().read_all(&source)?;
 
                 if cancel_token_clone.load(Ordering::Relaxed) {
                     return Err(EngineError::UnsupportedFormat); // Treat cancellation as a generic early exit
                 }
 
                 // Check format first
-                let reader = std::io::BufReader::new(&mut file);
-                let format = image::ImageReader::new(reader)
+                let cursor = std::io::Cursor::new(bytes.as_ref());
+                let format = image::ImageReader::new(cursor)
                     .with_guessed_format()
                     .map_err(|e| EngineError::ImageLoadError(image::ImageError::IoError(e)))?
                     .format()
@@ -116,15 +125,10 @@ impl Animation {
                         // Check if it's actually an animation
                         let is_animated = match format {
                             image::ImageFormat::WebP => {
-                                let mut peek_file = std::fs::File::open(&source_path).unwrap();
-                                let peek_reader = std::io::BufReader::new(&mut peek_file);
-                                if let Ok(decoder) =
-                                    image::codecs::webp::WebPDecoder::new(peek_reader)
-                                {
-                                    decoder.has_animation()
-                                } else {
-                                    false
-                                }
+                                let peek_cursor = std::io::Cursor::new(bytes.as_ref());
+                                image::codecs::webp::WebPDecoder::new(peek_cursor)
+                                    .map(|d| d.has_animation())
+                                    .unwrap_or(false)
                             }
                             _ => true, // Assuming Gif is usually animated, or handle accordingly
                         };
@@ -134,31 +138,21 @@ impl Animation {
                         }
 
                         if !is_animated {
-                            let frames = Self::load_static(&source_path)?;
+                            let frames = Self::load_static(bytes.as_ref())?;
                             let first_frame = frames.into_iter().next().unwrap();
-                            return Ok(AnimationState::Static(first_frame));
+                            return Ok(AnimationState::Static {
+                                frame: first_frame,
+                                format,
+                            });
                         }
-
-                        // For animations, we just read the file bytes into memory
-                        use std::io::{Read, Seek};
-                        file.seek(std::io::SeekFrom::Start(0)).map_err(|e| {
-                            EngineError::ImageLoadError(image::ImageError::IoError(e))
-                        })?;
-
-                        let mut buffer = Vec::new();
-                        file.read_to_end(&mut buffer).map_err(|e| {
-                            EngineError::ImageLoadError(image::ImageError::IoError(e))
-                        })?;
 
                         if cancel_token_clone.load(Ordering::Relaxed) {
                             return Err(EngineError::UnsupportedFormat);
                         }
 
                         // Do a quick validation check and cache the first frame
-                        let mut decoder = crate::lazy_decoder::LazyDecoder::new(
-                            Arc::new(buffer.clone()),
-                            format,
-                        )?;
+                        let mut decoder =
+                            crate::lazy_decoder::LazyDecoder::new(bytes.clone(), format)?;
                         let first_frame = match decoder.next() {
                             Some(Ok(image_frame)) => {
                                 let (num, denom) = image_frame.delay().numer_denom_ms();
@@ -177,15 +171,18 @@ impl Animation {
                         };
 
                         Ok(AnimationState::Animated {
-                            bytes: Arc::new(buffer),
+                            bytes,
                             format,
                             first_frame,
                         })
                     }
                     _ => {
-                        let frames = Self::load_static(&source_path)?;
+                        let frames = Self::load_static(bytes.as_ref())?;
                         let first_frame = frames.into_iter().next().unwrap();
-                        Ok(AnimationState::Static(first_frame))
+                        Ok(AnimationState::Static {
+                            frame: first_frame,
+                            format,
+                        })
                     }
                 }
             })();
@@ -215,7 +212,9 @@ impl Animation {
             self.state = AnimationState::Skimmed;
         } else if matches!(
             self.state,
-            AnimationState::Static(_) | AnimationState::Animated { .. } | AnimationState::Error(_)
+            AnimationState::Static { .. }
+                | AnimationState::Animated { .. }
+                | AnimationState::Error(_)
         ) {
             self.state = AnimationState::Skimmed;
         }
@@ -239,9 +238,8 @@ impl Animation {
                 Ok(state) => {
                     if let AnimationState::Animated { format, .. } = &state {
                         self.format = *format;
-                    } else if let AnimationState::Static(_) = &state {
-                        // For static, format isn't strictly needed for decoding but we can preserve it if known
-                        // but AnimationState::Static doesn't carry format. The `parse` method sets it before.
+                    } else if let AnimationState::Static { format, .. } = &state {
+                        self.format = *format;
                     }
                     self.state = state;
                 }
@@ -273,6 +271,8 @@ impl Animation {
                 Ok(state) => {
                     if let AnimationState::Animated { format, .. } = &state {
                         self.format = *format;
+                    } else if let AnimationState::Static { format, .. } = &state {
+                        self.format = *format;
                     }
                     self.state = state;
                 }
@@ -283,11 +283,11 @@ impl Animation {
 
     /// Returns true if the animation is fully parsed and contains exactly one frame.
     pub fn is_single_frame(&self) -> bool {
-        matches!(&self.state, AnimationState::Static(_))
+        matches!(&self.state, AnimationState::Static { .. })
     }
 
-    fn load_static(path: &PathBuf) -> Result<Vec<Frame>, EngineError> {
-        let img = image::open(path)?;
+    fn load_static(bytes: &[u8]) -> Result<Vec<Frame>, EngineError> {
+        let img = image::load_from_memory(bytes)?;
         let rgba = img.into_rgba8();
 
         let frame = Frame {
@@ -299,6 +299,11 @@ impl Animation {
     }
 }
 
+fn source_access() -> &'static SourceAccess {
+    static ACCESS: OnceLock<SourceAccess> = OnceLock::new();
+    ACCESS.get_or_init(SourceAccess::default)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -306,7 +311,7 @@ mod tests {
     #[test]
     fn test_is_single_frame() {
         let mut anim = Animation {
-            source_path: PathBuf::from("test.jpg"),
+            source: MediaUrl::parse_url("file:///test.jpg").unwrap(),
             format: image::ImageFormat::Jpeg,
             state: AnimationState::Skimmed,
         };
@@ -315,10 +320,13 @@ mod tests {
         assert!(!anim.is_single_frame());
 
         // Simulate parsed state with 1 frame
-        anim.state = AnimationState::Static(Frame {
-            data: image::RgbaImage::new(1, 1),
-            duration: Duration::from_millis(100),
-        });
+        anim.state = AnimationState::Static {
+            frame: Frame {
+                data: image::RgbaImage::new(1, 1),
+                duration: Duration::from_millis(100),
+            },
+            format: image::ImageFormat::Png,
+        };
         assert!(anim.is_single_frame());
 
         // Simulate parsed state with multiple frames

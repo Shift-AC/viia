@@ -44,9 +44,16 @@ pub enum RuntimeAction {
     #[command(name = "d")]
     Dimension { dim: Option<String> },
 
-    /// Show current image
-    #[command(name = "e")]
-    ShowCurrent,
+    /// Go to an image by file-list index. Omit index to show the current image.
+    #[command(name = "g")]
+    Goto { index: Option<usize> },
+
+    /// Print file names in the current file list that match a regex pattern.
+    #[command(name = "m", visible_alias = "match")]
+    Match {
+        #[arg(allow_hyphen_values = true)]
+        pattern: String,
+    },
 
     /// Show the previous image
     #[command(name = "l")]
@@ -81,6 +88,18 @@ pub enum RuntimeAction {
     /// Print help information
     #[command(name = "h")]
     Help,
+}
+
+pub fn zero_based_to_shell_index(index: usize) -> usize {
+    index
+        .checked_add(1)
+        .expect("shell display index overflowed usize")
+}
+
+pub fn shell_index_to_zero_based(index: usize) -> Result<usize, String> {
+    index
+        .checked_sub(1)
+        .ok_or_else(|| "File index must be at least 1".to_string())
 }
 
 impl InternalCommand {
@@ -137,8 +156,20 @@ mod tests {
     #[test]
     fn test_parse_basic_actions() {
         assert_eq!(
-            InternalCommand::parse_line("e").unwrap().action,
-            RuntimeAction::ShowCurrent
+            InternalCommand::parse_line("g").unwrap().action,
+            RuntimeAction::Goto { index: None }
+        );
+        assert_eq!(
+            InternalCommand::parse_line("g 3").unwrap().action,
+            RuntimeAction::Goto { index: Some(3) }
+        );
+        assert_eq!(
+            InternalCommand::parse_line("g 1").unwrap().action,
+            RuntimeAction::Goto { index: Some(1) }
+        );
+        assert_eq!(
+            InternalCommand::parse_line("g 0").unwrap().action,
+            RuntimeAction::Goto { index: Some(0) }
         );
         assert_eq!(
             InternalCommand::parse_line("l").unwrap().action,
@@ -155,6 +186,37 @@ mod tests {
         assert_eq!(
             InternalCommand::parse_line("r").unwrap().action,
             RuntimeAction::ShowNext
+        );
+    }
+
+    #[test]
+    fn test_parse_match() {
+        let cmd = InternalCommand::parse_line(r#"m "^cat.*\.png$""#).unwrap();
+        assert_eq!(
+            cmd.action,
+            RuntimeAction::Match {
+                pattern: "^cat.*\\.png$".to_string()
+            }
+        );
+
+        let cmd = InternalCommand::parse_line(r#"match "dog-\d+\.jpg""#).unwrap();
+        assert_eq!(
+            cmd.action,
+            RuntimeAction::Match {
+                pattern: "dog-\\d+\\.jpg".to_string()
+            }
+        );
+    }
+
+    #[test]
+    fn test_shell_index_conversion_helpers_use_one_based_indices() {
+        assert_eq!(zero_based_to_shell_index(0), 1);
+        assert_eq!(zero_based_to_shell_index(4), 5);
+        assert_eq!(shell_index_to_zero_based(1).unwrap(), 0);
+        assert_eq!(shell_index_to_zero_based(5).unwrap(), 4);
+        assert_eq!(
+            shell_index_to_zero_based(0).unwrap_err(),
+            "File index must be at least 1"
         );
     }
 

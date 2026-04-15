@@ -1,5 +1,6 @@
 use base64::{Engine as _, engine::general_purpose};
-use std::path::PathBuf;
+use image::ImageEncoder;
+use regex::Regex;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tauri::http::{Response, StatusCode};
@@ -7,8 +8,9 @@ use tauri::{AppHandle, Emitter, Manager, State};
 use tokio::sync::mpsc;
 use tracing::{debug, error, info, warn};
 use viia_core::{
-    Animation, InternalCommand, PlaybackState, RuntimeAction, SlideshowManager, TimingCommand,
-    collect_image_paths, parse_slideshow_spec, update_prefetch,
+    Animation, InternalCommand, MediaUrl, PlaybackState, RuntimeAction, SlideshowManager,
+    TimingCommand, parse_slideshow_spec, resolve_media_urls, shell_index_to_zero_based,
+    update_prefetch, zero_based_to_shell_index,
 };
 
 #[derive(Clone, serde::Serialize)]
@@ -27,6 +29,26 @@ struct FramePayload {
     width: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     height: Option<u32>,
+}
+
+#[derive(Clone, serde::Serialize)]
+struct StatusPayload {
+    current_index: usize,
+    total: usize,
+    display_text: String,
+    playback_state: String,
+}
+
+#[derive(Clone, serde::Serialize)]
+struct MatchResultRow {
+    index: usize,
+    name: String,
+}
+
+#[derive(Clone, serde::Serialize)]
+struct MatchResultsPayload {
+    pattern: String,
+    rows: Vec<MatchResultRow>,
 }
 
 struct AppState {
@@ -63,9 +85,51 @@ fn log_to_terminal(msg: String) {
     info!("Frontend: {}", msg);
 }
 
+fn encode_frame_as_png_data_uri(frame: &image::RgbaImage) -> Result<String, String> {
+    let mut png_bytes = Vec::new();
+    {
+        let encoder = image::codecs::png::PngEncoder::new(&mut png_bytes);
+        encoder
+            .write_image(
+                frame.as_raw(),
+                frame.width(),
+                frame.height(),
+                image::ColorType::Rgba8.into(),
+            )
+            .map_err(|e| format!("Failed to encode PNG: {}", e))?;
+    }
+
+    let payload = general_purpose::STANDARD.encode(png_bytes);
+    Ok(format!("data:image/png;base64,{}", payload))
+}
+
+fn display_source_name(source: &MediaUrl) -> String {
+    source
+        .file_name()
+        .unwrap_or_else(|| source.as_str().to_string())
+}
+
+fn match_file_names(
+    animations: &[Animation],
+    pattern: &str,
+) -> Result<Vec<(usize, String)>, regex::Error> {
+    let regex = Regex::new(pattern)?;
+    Ok(animations
+        .iter()
+        .enumerate()
+        .map(|(idx, animation)| {
+            (
+                zero_based_to_shell_index(idx),
+                display_source_name(&animation.source),
+            )
+        })
+        .filter(|(_, name)| regex.is_match(name))
+        .collect())
+}
+
 fn engine_loop(
     app: AppHandle,
-    paths: Vec<PathBuf>,
+    inputs: Vec<String>,
     mut rx: mpsc::Receiver<String>,
     frame_state: Arc<FrameState>,
     prefetch: usize,
@@ -75,17 +139,37 @@ fn engine_loop(
     // Skip waiting, just start the engine directly and handle commands as they come
     info!(
         "Frontend is ready. Starting GUI engine loop with {} input paths",
-        paths.len()
+        inputs.len()
     );
-    let (resolved_paths, start_idx) = collect_image_paths(paths);
-    info!("Resolved {} image paths", resolved_paths.len());
+    let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+    let urls = match inputs
+        .iter()
+        .map(|input| MediaUrl::from_input(input, &cwd))
+        .collect::<Result<Vec<_>, _>>()
+    {
+        Ok(urls) => urls,
+        Err(err) => {
+            error!("Failed to normalize GUI inputs: {}", err);
+            let _ = app.emit("status", format!("Invalid input: {}", err));
+            return;
+        }
+    };
+    let (resolved_urls, start_idx) = match resolve_media_urls(urls) {
+        Ok(result) => result,
+        Err(err) => {
+            error!("Failed to resolve GUI inputs: {}", err);
+            let _ = app.emit("status", format!("Failed to resolve inputs: {}", err));
+            return;
+        }
+    };
+    info!("Resolved {} image paths", resolved_urls.len());
 
     let mut animations = Vec::new();
-    for path in resolved_paths {
-        if let Ok(anim) = Animation::skim(path.clone()) {
+    for url in resolved_urls {
+        if let Ok(anim) = Animation::skim(url) {
             animations.push(anim);
         } else {
-            warn!("Failed to skim animation for path: {:?}", path);
+            warn!("Failed to skim animation for resolved input");
         }
     }
 
@@ -176,7 +260,7 @@ fn engine_loop(
                             info!(
                                 "Showing next animation: index {} ({})",
                                 current_idx,
-                                animations[current_idx].source_path.display()
+                                animations[current_idx].source.as_str()
                             );
                             update_prefetch(&mut animations, current_idx, prefetch);
                             if let Err(e) = manager.load_animation(&animations[current_idx]) {
@@ -193,7 +277,7 @@ fn engine_loop(
                             info!(
                                 "Showing previous animation: index {} ({})",
                                 current_idx,
-                                animations[current_idx].source_path.display()
+                                animations[current_idx].source.as_str()
                             );
                             update_prefetch(&mut animations, current_idx, prefetch);
                             if let Err(e) = manager.load_animation(&animations[current_idx]) {
@@ -201,9 +285,52 @@ fn engine_loop(
                             }
                             last_rendered_frame = usize::MAX;
                         }
-                        RuntimeAction::ShowCurrent => {
-                            debug!("ShowCurrent command forcing redraw");
+                        RuntimeAction::Goto { index } => {
+                            if let Some(target_idx) = index {
+                                let zero_based_idx = match shell_index_to_zero_based(target_idx) {
+                                    Ok(index) => index,
+                                    Err(err) => {
+                                        error!("{}", err);
+                                        continue;
+                                    }
+                                };
+                                if zero_based_idx >= animations.len() {
+                                    error!(
+                                        "File index {} is out of range for file list of length {}",
+                                        target_idx,
+                                        animations.len()
+                                    );
+                                    continue;
+                                }
+                                current_idx = zero_based_idx;
+                                update_prefetch(&mut animations, current_idx, prefetch);
+                                if let Err(e) = manager.load_animation(&animations[current_idx]) {
+                                    animations[current_idx].state =
+                                        viia_core::AnimationState::Error(e);
+                                }
+                            }
+                            debug!("Goto command forcing redraw at index {}", current_idx);
                             last_rendered_frame = usize::MAX;
+                        }
+                        RuntimeAction::Match { pattern } => {
+                            match match_file_names(&animations, &pattern) {
+                                Ok(rows) => {
+                                    info!("Matching current file list with regex: {}", pattern);
+                                    let payload = MatchResultsPayload {
+                                        pattern: pattern.clone(),
+                                        rows: rows
+                                            .into_iter()
+                                            .map(|(index, name)| MatchResultRow { index, name })
+                                            .collect(),
+                                    };
+                                    if let Err(e) = app.emit("match-results", payload) {
+                                        error!("Failed to emit match-results event: {}", e);
+                                    }
+                                }
+                                Err(err) => {
+                                    error!("Invalid regex '{}': {}", pattern, err);
+                                }
+                            }
                         }
                         RuntimeAction::Dimension { .. } => {
                             debug!(
@@ -218,9 +345,12 @@ fn engine_loop(
                         RuntimeAction::StartSlideshow { cmd } => {
                             let spec = cmd.join(" ");
                             info!("Starting slideshow with spec: '{}'", spec);
-                            let parent_dir = animations[current_idx]
-                                .source_path
-                                .parent()
+                            let parent_dir_path = animations[current_idx]
+                                .source
+                                .to_file_path()
+                                .and_then(|p| p.parent().map(|x| x.to_path_buf()));
+                            let parent_dir = parent_dir_path
+                                .as_deref()
                                 .unwrap_or(std::path::Path::new(""));
                             if let Ok(cmds) = parse_slideshow_spec(&spec, parent_dir)
                                 && !cmds.is_empty()
@@ -268,7 +398,7 @@ fn engine_loop(
                     info!(
                         "Automatically advancing to next animation: index {} ({})",
                         current_idx,
-                        animations[current_idx].source_path.display()
+                        animations[current_idx].source.as_str()
                     );
                     update_prefetch(&mut animations, current_idx, prefetch);
                     if let Err(e) = manager.load_animation(&animations[current_idx]) {
@@ -302,19 +432,26 @@ fn engine_loop(
 
             if let Some(frame) = manager.current_frame() {
                 if animations[current_idx].is_single_frame() {
-                    let path = animations[current_idx]
-                        .source_path
-                        .to_string_lossy()
-                        .to_string();
-                    debug!("Emitting path {} for animation {}", path, current_idx);
+                    let data_uri = match encode_frame_as_png_data_uri(&frame.data) {
+                        Ok(data_uri) => data_uri,
+                        Err(err) => {
+                            error!("Failed to encode static frame for GUI: {}", err);
+                            continue;
+                        }
+                    };
+                    let image_path = animations[current_idx].source.as_str().to_string();
+                    debug!(
+                        "Emitting static frame as data URI for animation {} ({})",
+                        current_idx, image_path
+                    );
                     if let Err(e) = app.emit(
                         "frame",
                         FramePayload {
-                            data_uri: None,
-                            path: Some(path.clone()),
+                            data_uri: Some(data_uri),
+                            path: None,
                             blob_url: None,
                             zoom_mode: Some(zoom_str),
-                            image_path: Some(path),
+                            image_path: Some(image_path),
                             width: None,
                             height: None,
                         },
@@ -332,10 +469,7 @@ fn engine_loop(
                         "application/octet-stream".to_string();
 
                     // Encode parameters for caching
-                    let path_str = animations[current_idx]
-                        .source_path
-                        .to_string_lossy()
-                        .to_string();
+                    let path_str = animations[current_idx].source.as_str().to_string();
                     let path_b64 = general_purpose::URL_SAFE_NO_PAD.encode(path_str.as_bytes());
 
                     #[cfg(any(windows, target_os = "android"))]
@@ -378,10 +512,7 @@ fn engine_loop(
                 error!("Failed to render image: {}", err);
 
                 // Clear the image and we will emit an error in the status message
-                let path = animations[current_idx]
-                    .source_path
-                    .to_string_lossy()
-                    .to_string();
+                let path = animations[current_idx].source.as_str().to_string();
                 if let Err(e) = app.emit(
                     "frame",
                     FramePayload {
@@ -404,10 +535,9 @@ fn engine_loop(
             }
 
             let file_name = animations[current_idx]
-                .source_path
+                .source
                 .file_name()
-                .unwrap_or_default()
-                .to_string_lossy();
+                .unwrap_or_else(|| "unknown".to_string());
 
             let mut status_msg = format!(
                 "[{}/{}] {} | {}",
@@ -436,9 +566,29 @@ fn engine_loop(
                 );
             }
 
+            let status_payload = StatusPayload {
+                current_index: zero_based_to_shell_index(current_idx),
+                total: animations.len(),
+                display_text: if let viia_core::AnimationState::Error(err) =
+                    &animations[current_idx].state
+                {
+                    format!("{} (Error: {})", file_name, err)
+                } else {
+                    file_name.clone()
+                },
+                playback_state: if manager.state() == PlaybackState::Playing {
+                    "Playing".to_string()
+                } else {
+                    "Paused".to_string()
+                },
+            };
+
             debug!("Emitting status update: {}", status_msg);
             if let Err(e) = app.emit("status", status_msg) {
                 error!("Failed to emit status event: {}", e);
+            }
+            if let Err(e) = app.emit("status-meta", status_payload) {
+                error!("Failed to emit status-meta event: {}", e);
             }
 
             if let Some(window) = app.get_webview_window("main") {
@@ -457,13 +607,13 @@ fn engine_loop(
 }
 
 pub fn run_gui(
-    paths: Vec<PathBuf>,
+    inputs: Vec<String>,
     dimension: Option<String>,
     prefetch: usize,
 ) -> Result<(), Box<dyn std::error::Error>> {
     info!(
         "Initializing Tauri GUI application with {} input paths",
-        paths.len()
+        inputs.len()
     );
     let (tx, rx) = mpsc::channel(32);
     // Clone tx so we can pass it to state and keep a copy if needed, but AppState takes ownership
@@ -503,7 +653,7 @@ pub fn run_gui(
             info!("Tauri setup hook called, spawning engine loop thread");
             let handle = app.handle().clone();
             std::thread::spawn(move || {
-                engine_loop(handle, paths, rx, frame_state, prefetch);
+                engine_loop(handle, inputs, rx, frame_state, prefetch);
             });
 
             if let Some(window) = app.get_webview_window("main") {
@@ -553,7 +703,7 @@ pub fn run_gui(
                 let _ = tx_clone.send("start".to_string()).await;
                 // Wait a bit more and force a redraw command
                 tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-                let _ = tx_clone.send("e".to_string()).await;
+                let _ = tx_clone.send("g".to_string()).await;
             });
 
             // Open devtools automatically to see frontend console logs
@@ -575,4 +725,51 @@ pub fn run_gui(
 
     info!("Tauri GUI application exited gracefully");
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs::File;
+    use tempfile::tempdir;
+
+    fn skim_animation(path: &std::path::Path) -> Animation {
+        let source = MediaUrl::from_abs_path(path).unwrap();
+        Animation::skim(source).unwrap()
+    }
+
+    #[test]
+    fn test_match_file_names_matches_file_names_only() {
+        let dir = tempdir().unwrap();
+        let cat = dir.path().join("cat-01.png");
+        let dog = dir.path().join("dog-01.png");
+        let cat_jpg = dir.path().join("cat-02.jpg");
+        File::create(&cat).unwrap();
+        File::create(&dog).unwrap();
+        File::create(&cat_jpg).unwrap();
+
+        let animations = vec![
+            skim_animation(&cat),
+            skim_animation(&dog),
+            skim_animation(&cat_jpg),
+        ];
+
+        let names = match_file_names(&animations, r"^cat.*\.(png|jpg)$").unwrap();
+        assert_eq!(
+            names,
+            vec![(1, "cat-01.png".to_string()), (3, "cat-02.jpg".to_string())]
+        );
+    }
+
+    #[test]
+    fn test_match_file_names_rejects_invalid_regex() {
+        let dir = tempdir().unwrap();
+        let image = dir.path().join("image.png");
+        File::create(&image).unwrap();
+
+        let animations = vec![skim_animation(&image)];
+
+        let err = match_file_names(&animations, "(").unwrap_err();
+        assert!(!err.to_string().is_empty());
+    }
 }
