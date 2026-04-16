@@ -114,17 +114,22 @@ impl Animation {
                         let cursor = std::io::Cursor::new(bytes.as_ref());
                         image::ImageReader::new(cursor)
                             .with_guessed_format()
-                            .map_err(|e| EngineError::ImageLoadError(image::ImageError::IoError(e)))?
+                            .map_err(|e| {
+                                EngineError::ImageLoadError(image::ImageError::IoError(e))
+                            })?
                             .format()
                             .ok_or(EngineError::UnsupportedFormat)?
                     }
                     crate::source_access::SourceData::LocalFile(path) => {
-                        let file = std::fs::File::open(path)
-                            .map_err(|e| EngineError::ImageLoadError(image::ImageError::IoError(e)))?;
+                        let file = std::fs::File::open(path).map_err(|e| {
+                            EngineError::ImageLoadError(image::ImageError::IoError(e))
+                        })?;
                         let reader = std::io::BufReader::new(file);
                         image::ImageReader::new(reader)
                             .with_guessed_format()
-                            .map_err(|e| EngineError::ImageLoadError(image::ImageError::IoError(e)))?
+                            .map_err(|e| {
+                                EngineError::ImageLoadError(image::ImageError::IoError(e))
+                            })?
                             .format()
                             .ok_or(EngineError::UnsupportedFormat)?
                     }
@@ -138,23 +143,21 @@ impl Animation {
                     image::ImageFormat::Gif | image::ImageFormat::WebP => {
                         // Check if it's actually an animation
                         let is_animated = match format {
-                            image::ImageFormat::WebP => {
-                                match &source_data {
-                                    crate::source_access::SourceData::Bytes(bytes) => {
-                                        let peek_cursor = std::io::Cursor::new(bytes.as_ref());
-                                        image::codecs::webp::WebPDecoder::new(peek_cursor)
-                                            .map(|d| d.has_animation())
-                                            .unwrap_or(false)
-                                    }
-                                    crate::source_access::SourceData::LocalFile(path) => {
-                                        let peek_file = std::fs::File::open(path).unwrap();
-                                        let peek_reader = std::io::BufReader::new(peek_file);
-                                        image::codecs::webp::WebPDecoder::new(peek_reader)
-                                            .map(|d| d.has_animation())
-                                            .unwrap_or(false)
-                                    }
+                            image::ImageFormat::WebP => match &source_data {
+                                crate::source_access::SourceData::Bytes(bytes) => {
+                                    let peek_cursor = std::io::Cursor::new(bytes.as_ref());
+                                    image::codecs::webp::WebPDecoder::new(peek_cursor)
+                                        .map(|d| d.has_animation())
+                                        .unwrap_or(false)
                                 }
-                            }
+                                crate::source_access::SourceData::LocalFile(path) => {
+                                    let peek_file = std::fs::File::open(path).unwrap();
+                                    let peek_reader = std::io::BufReader::new(peek_file);
+                                    image::codecs::webp::WebPDecoder::new(peek_reader)
+                                        .map(|d| d.has_animation())
+                                        .unwrap_or(false)
+                                }
+                            },
                             _ => true, // Assuming Gif is usually animated, or handle accordingly
                         };
 

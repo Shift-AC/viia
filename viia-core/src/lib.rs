@@ -13,8 +13,7 @@ pub mod state_machine;
 pub use cache::{CacheKey, FrameCache};
 pub use image_loader::{Animation, AnimationState, EngineError, Frame};
 pub use internal_shell::{
-    InternalCommand, RuntimeAction, ZoomMode, shell_index_to_zero_based,
-    zero_based_to_shell_index,
+    InternalCommand, RuntimeAction, ZoomMode, shell_index_to_zero_based, zero_based_to_shell_index,
 };
 pub use media_url::MediaUrl;
 pub use resizer::resize_image;

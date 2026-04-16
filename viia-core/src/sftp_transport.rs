@@ -71,6 +71,44 @@ pub fn download_file(url: &MediaUrl) -> Result<Vec<u8>, String> {
     download_file_with_runner(url, &ProcessCommandRunner)
 }
 
+pub fn get_metadata(url: &MediaUrl) -> Result<String, String> {
+    get_metadata_with_runner(url, &ProcessCommandRunner)
+}
+
+fn get_metadata_with_runner(url: &MediaUrl, runner: &dyn CommandRunner) -> Result<String, String> {
+    let parsed = url
+        .to_url()
+        .map_err(|e| format!("Invalid SFTP URL '{}': {}", url.as_str(), e))?;
+    ensure_sftp_scheme(&parsed)?;
+
+    let parent = url
+        .parent()
+        .ok_or_else(|| format!("SFTP URL has no parent directory: {}", url.as_str()))?;
+    let file_name = url
+        .file_name()
+        .ok_or_else(|| format!("SFTP URL has no file name: {}", url.as_str()))?;
+    let destination = parent.as_str().to_string();
+    let batch = format!("@ls -l {}\n", quote_sftp_arg(&file_name));
+
+    debug!(
+        "Getting metadata for SFTP file {} via destination {}",
+        url.as_str(),
+        destination
+    );
+    let output = run_sftp_batch(runner, &destination, &batch)?;
+
+    let line = output
+        .stdout
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .filter(|line| !line.starts_with("sftp>"))
+        .rfind(|line| !line.starts_with("Connected to "))
+        .ok_or_else(|| format!("Could not get metadata for {}", url.as_str()))?;
+
+    Ok(line.to_string())
+}
+
 fn list_directory_with_runner(
     url: &MediaUrl,
     runner: &dyn CommandRunner,

@@ -1,6 +1,6 @@
 [package]
 name = "viia"
-version = "0.1.1"
+version.workspace = true
 edition = "2024"
 repository = "https://github.com/viia/viia"
 authors = ["Admin"]
@@ -34,9 +34,9 @@ regex = "1.12.3"
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 tui-logger = { version = "0.18.1", features = ["tracing-support"] }
-viia-core = { version = "0.1.0", path = "../viia-core" }
-viia-gui = { version = "0.1.0", path = "../viia-gui", optional = true }
-viia-tui = { version = "0.1.0", path = "../viia-tui" }
+viia-core = { version = "0.1.1", path = "../viia-core" }
+viia-gui = { version = "0.1.1", path = "../viia-gui", optional = true }
+viia-tui = { version = "0.1.1", path = "../viia-tui" }
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61.2", features = ["Win32_System_Console"] }

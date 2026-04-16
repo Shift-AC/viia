@@ -187,6 +187,11 @@
         background: rgba(0,0,0,0.5);
         border-color: #555;
       }
+      #index-input:disabled, #scale-input:disabled {
+        background: rgba(255,255,255,0.05);
+        color: #888;
+        cursor: not-allowed;
+      }
       #button-row {
         display: flex;
         align-items: center;
@@ -208,8 +213,11 @@
         justify-content: center;
         transition: background 0.2s;
       }
-      .control-btn:hover {
+      .control-btn:hover:not(:disabled) {
         background: rgba(255, 255, 255, 0.2);
+      }
+      .control-btn:disabled {
+        cursor: not-allowed;
       }
       .control-btn svg {
         width: 24px;
@@ -247,7 +255,7 @@
       /* Empty State Styles */
       #empty-state {
         margin: auto;
-        display: none;
+        display: flex;
         flex-direction: column;
         align-items: center;
         justify-content: center;
@@ -616,28 +624,28 @@
           <div id="overlay-content">
           <div id="status-container">
           <span>[</span>
-          <input type="text" id="index-input" title="Current file index" value="0" />
+          <input type="text" id="index-input" title="Current file index" value="0" disabled />
           <span id="index-total">/0</span>
           <span>]</span>
-          <span id="status-msg">Loading...</span>
+          <span id="status-msg">No images</span>
           <span>|</span>
-          <input type="text" id="scale-input" title="Scale percentage" value="100" />
+          <input type="text" id="scale-input" title="Scale percentage" value="100" disabled />
           <span>%</span>
-          <span id="mode-text"></span>
+          <span id="mode-text">(shrink)</span>
         </div>
         <div id="button-row">
           <div id="control-buttons">
-          <button class="control-btn" id="btn-prev" title="Previous Image (Left Arrow)">
+          <button class="control-btn" id="btn-prev" title="Previous Image (Left Arrow)" disabled style="opacity: 0.3;">
           <svg viewBox="0 0 24 24"><path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/></svg>
         </button>
-        <button class="control-btn" id="btn-pause" title="Pause/Resume (Space)">
+        <button class="control-btn" id="btn-pause" title="Pause/Resume (Space)" disabled style="opacity: 0.3;">
           <svg id="icon-play" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
           <svg id="icon-pause" viewBox="0 0 24 24" style="display: none;"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
         </button>
-        <button class="control-btn" id="btn-next" title="Next Image (Right Arrow)">
+        <button class="control-btn" id="btn-next" title="Next Image (Right Arrow)" disabled style="opacity: 0.3;">
           <svg viewBox="0 0 24 24"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg>
         </button>
-        <button class="control-btn" id="btn-zoom-mode" title="Zoom Mode (Shrink/Fit)">
+        <button class="control-btn" id="btn-zoom-mode" title="Zoom Mode (Shrink/Fit)" disabled style="opacity: 0.3;">
           <svg id="icon-zoom-fixed" viewBox="0 0 24 24" style="display: none;">
             <path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/>
           </svg>
@@ -650,7 +658,7 @@
             <rect x="9" y="9" width="6" height="6" />
           </svg>
         </button>
-        <button class="control-btn" id="btn-slideshow" title="Play Slideshow">
+        <button class="control-btn" id="btn-slideshow" title="Play Slideshow" disabled style="opacity: 0.3;">
           <svg viewBox="0 0 24 24"><path d="M4 6H2v14c0 1.1.9 2 2 2h14v-2H4V6zm16-4H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-8 12.5v-9l6 4.5-6 4.5z"/></svg>
         </button>
         <button class="control-btn" id="btn-open-file" title="Open File">
@@ -846,9 +854,9 @@
       let tempZoomScale = null;
       let lastReceivedZoomMode = null;
       let currentImagePath = null;
-      let currentStatusMsg = "Loading...";
-      let currentStatusIndex = 1;
-      let currentStatusTotal = 1;
+      let currentStatusMsg = "No images";
+      let currentStatusIndex = 0;
+      let currentStatusTotal = 0;
       let isBursting = false;
 
       // Helper to calculate the *real* scale of the image relative to its natural size
@@ -1809,7 +1817,7 @@
             document.getElementById('viewer').style.display = 'none';
             document.getElementById('viewer-canvas').style.display = 'none';
             
-            document.querySelectorAll('.control-btn:not(#btn-cmd):not(#btn-open-file):not(#btn-open-url):not(#btn-minimize):not(#btn-maximize):not(#btn-close)').forEach(btn => {
+            document.querySelectorAll('.control-btn:not(#btn-cmd):not(#btn-open-file):not(#btn-open-url):not(#btn-help):not(#btn-minimize):not(#btn-maximize):not(#btn-close)').forEach(btn => {
               btn.disabled = true;
               btn.style.opacity = '0.3';
             });

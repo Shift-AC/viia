@@ -49,7 +49,7 @@ pub enum RuntimeAction {
     Goto { index: Option<usize> },
 
     /// Print file names in the current file list that match a regex pattern.
-    #[command(name = "m", visible_alias = "match")]
+    #[command(name = "m")]
     Match {
         #[arg(allow_hyphen_values = true)]
         pattern: String,
@@ -60,7 +60,7 @@ pub enum RuntimeAction {
     ShowPrevious,
 
     /// Open a new set of files, directories, or URLs
-    #[command(name = "o", visible_alias = "open")]
+    #[command(name = "o")]
     Open {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         targets: Vec<String>,
@@ -203,14 +203,6 @@ mod tests {
             cmd.action,
             RuntimeAction::Match {
                 pattern: "^cat.*\\.png$".to_string()
-            }
-        );
-
-        let cmd = InternalCommand::parse_line(r#"match "dog-\d+\.jpg""#).unwrap();
-        assert_eq!(
-            cmd.action,
-            RuntimeAction::Match {
-                pattern: "dog-\\d+\\.jpg".to_string()
             }
         );
     }

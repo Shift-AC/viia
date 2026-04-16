@@ -1,6 +1,6 @@
 [package]
 name = "viia-tui"
-version = "0.1.0"
+version.workspace = true
 edition = "2024"
 
 [dependencies]
@@ -13,7 +13,7 @@ regex = "1.12.3"
 terminal-light = "1.8.0"
 tracing = "0.1.44"
 tui-logger = { version = "0.18.1", features = ["tracing-support"] }
-viia-core = { version = "0.1.0", path = "../viia-core" }
+viia-core = { version = "0.1.1", path = "../viia-core" }
 
 [dev-dependencies]
 tempfile = "3.27.0"

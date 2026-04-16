@@ -452,13 +452,16 @@ fn run_loop(
                                                     }
                                                     viia_core::RuntimeAction::Goto { index } => {
                                                         if let Some(target_idx) = index {
-                                                            let zero_based_idx = match shell_index_to_zero_based(target_idx) {
-                                                                Ok(index) => index,
-                                                                Err(err) => {
-                                                                    error!("{}", err);
-                                                                    continue;
-                                                                }
-                                                            };
+                                                            let zero_based_idx =
+                                                                match shell_index_to_zero_based(
+                                                                    target_idx,
+                                                                ) {
+                                                                    Ok(index) => index,
+                                                                    Err(err) => {
+                                                                        error!("{}", err);
+                                                                        continue;
+                                                                    }
+                                                                };
                                                             if zero_based_idx >= animations.len() {
                                                                 error!(
                                                                     "File index {} is out of range for file list of length {}",
@@ -577,40 +580,69 @@ fn run_loop(
                                                     }
                                                     viia_core::RuntimeAction::Open { targets } => {
                                                         let cwd = std::env::current_dir()
-                                                            .unwrap_or_else(|_| std::path::PathBuf::from("."));
+                                                            .unwrap_or_else(|_| {
+                                                                std::path::PathBuf::from(".")
+                                                            });
                                                         let urls = targets
                                                             .iter()
-                                                            .map(|input| MediaUrl::from_input(input, &cwd))
+                                                            .map(|input| {
+                                                                MediaUrl::from_input(input, &cwd)
+                                                            })
                                                             .collect::<Result<Vec<_>, _>>();
                                                         match urls {
                                                             Ok(urls) => {
                                                                 match resolve_media_urls(urls) {
-                                                                    Ok((resolved_urls, start_idx)) => {
-                                                                        let mut new_animations = Vec::new();
+                                                                    Ok((
+                                                                        resolved_urls,
+                                                                        start_idx,
+                                                                    )) => {
+                                                                        let mut new_animations =
+                                                                            Vec::new();
                                                                         for url in resolved_urls {
-                                                                            if let Ok(anim) = Animation::skim(url) {
-                                                                                new_animations.push(anim);
+                                                                            if let Ok(anim) =
+                                                                                Animation::skim(url)
+                                                                            {
+                                                                                new_animations
+                                                                                    .push(anim);
                                                                             }
                                                                         }
-                                                                        if new_animations.is_empty() {
-                                                                            error!("No images found from provided targets");
+                                                                        if new_animations.is_empty()
+                                                                        {
+                                                                            error!(
+                                                                                "No images found from provided targets"
+                                                                            );
                                                                         } else {
-                                                                            animations = new_animations;
+                                                                            animations =
+                                                                                new_animations;
                                                                             current_idx = start_idx.min(animations.len().saturating_sub(1));
                                                                             // FrameCache isn't easily cleared here without re-creating it, but we can just let old items expire.
                                                                             manager = SlideshowManager::new(default_cmd.clone());
-                                                                            if let Err(e) = manager.load_animation(&animations[current_idx]) {
+                                                                            if let Err(e) = manager
+                                                                                .load_animation(
+                                                                                &animations
+                                                                                    [current_idx],
+                                                                            ) {
                                                                                 animations[current_idx].state = viia_core::AnimationState::Error(e);
                                                                             }
                                                                             force_clear = true;
-                                                                            last_rendered_frame = usize::MAX;
-                                                                            tracing::info!("Opened {} new images", animations.len());
+                                                                            last_rendered_frame =
+                                                                                usize::MAX;
+                                                                            tracing::info!(
+                                                                                "Opened {} new images",
+                                                                                animations.len()
+                                                                            );
                                                                         }
                                                                     }
-                                                                    Err(e) => error!("Failed to resolve URLs: {}", e),
+                                                                    Err(e) => error!(
+                                                                        "Failed to resolve URLs: {}",
+                                                                        e
+                                                                    ),
                                                                 }
                                                             }
-                                                            Err(e) => error!("Failed to parse URLs: {}", e),
+                                                            Err(e) => error!(
+                                                                "Failed to parse URLs: {}",
+                                                                e
+                                                            ),
                                                         }
                                                     }
                                                     viia_core::RuntimeAction::Help => unreachable!(

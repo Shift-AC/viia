@@ -77,4 +77,6 @@ pub fn run() {
             }
         }
     }
+
+    viia_core::source_access::clear_disk_cache();
 }

@@ -1,6 +1,5 @@
 {
   "productName": "viia",
-  "version": "0.1.0",
   "identifier": "com.viia.app",
   "build": {
     "frontendDist": "dist"

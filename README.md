@@ -10,7 +10,12 @@ Suppose you have a series of image files that represent a storyline, it is often
 
 `viia` is an image viewer that focuses on animations/slideshows. As stated by its name, it treats all images as animations, and enables you to assemble stand-alone animations into larger ones for you to view. To achieve this, `viia` provides programmable support for controlling the timing of each image in the slideshow, either by controlling the time or loops that it should be played. Consider you have a series of images that composes different parts in a complete animation, some of them are a single loop that may be played for multiple times, and others are stand-alone scenes. With `viia`, you could specify the number of loops to play for loop scenes or simply let them to play for a specified period, while playing others for only once. During the playback, you could even pause/resume them. For static images (which is considered as animation with only one frame by `viia`), `viia` also properly handles the animation work by allowing you to show the images rich in details longer, while only briefly showing the others. Because the animated images are often large and require more time to load/decode, `viia` also applies proper caching to accelerate image loading, ensuring seamless playback experience.
 
-Of course, in addition to slideshows, `viia` also supports anything that a basic image viewer would do, and a little more: resizing animated images.
+Of course, in addition to slideshows, `viia` also supports anything that a basic image viewer would do, and a little more: 
+
+1. Resizing animated images;
+2. Viewing remote images over SFTP.
+
+You may expect this list to grow in the future as I find out how to make `viia` easier to use :)
 
 ## Build/Usage
 
@@ -52,14 +57,16 @@ The `viia` program treats each image file as an animation (static images are sim
     | Command | Description |
     |---------|-------------|
     | `d [dim]` | Set window dimension (e.g., `d 800x600`). Omit the value to use screen size |
-    | `e`       | Show current image |
+    | `g [index]`| Go to an image by file-list index. Omit index to show the current image |
+    | `h`, `help` | Print help information |
     | `l`       | Show the previous image |
+    | `m [pattern]` | Print file names in the current file list that match a regex pattern |
+    | `o [targets...]` | Open a new set of files, directories, or URLs |
     | `p`       | Pause/Resume the current slideshow |
     | `q`       | Quit the program |
     | `r`       | Show the next image |
     | `s [cmd]` | Start a slideshow with a command string (see [Slideshow specification format](#slideshow-specification-format)) |
     | `z [mode]`| Set the zoom mode. Options: `fit` (scale to fit window), `shrink` (only shrink if too large), or a fixed scale percentage (e.g., `150`) |
-    | `h`, `help` | Print help information |
 
     In its implementation, `viia` designed its TUI and GUI to be as *dumb* as possible: they do minimal processing other than handling the UI. The real display work is typically done by the internal shell. The UI simply take user operations, generate command lines for the internal shell to execute, and renders the outputs on the UI. Therefore, *no matter which user interface is used*, you may use the runtime commands to control the behavior of `viia`.
     
