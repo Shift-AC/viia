@@ -145,6 +145,7 @@ pub fn run_headless(
                                 info!("Playback state: {:?}", manager.state());
                             }
                             RuntimeAction::ShowNext => {
+                                if animations.is_empty() { continue; }
                                 current_idx = (current_idx + 1) % animations.len();
                                 info!(
                                     "Navigated to next image: {}",
@@ -158,6 +159,7 @@ pub fn run_headless(
                                 last_rendered_frame = usize::MAX;
                             }
                             RuntimeAction::ShowPrevious => {
+                                if animations.is_empty() { continue; }
                                 if current_idx == 0 {
                                     current_idx = animations.len() - 1;
                                 } else {
@@ -175,6 +177,7 @@ pub fn run_headless(
                                 last_rendered_frame = usize::MAX;
                             }
                             RuntimeAction::Goto { index } => {
+                                if animations.is_empty() { continue; }
                                 match goto_index(current_idx, index, animations.len()) {
                                     Ok(target_idx) => {
                                         current_idx = target_idx;
@@ -225,8 +228,9 @@ pub fn run_headless(
                                 info!("Zoom command received: {:?}", mode);
                                 // Headless mode doesn't actually scale a window
                             }
-                            RuntimeAction::StartSlideshow { cmd } => {
-                                let spec = cmd.join(" ");
+                            viia_core::RuntimeAction::StartSlideshow { cmd } => {
+                            if animations.is_empty() { continue; }
+                            let spec = cmd.join(" ");
                                 let parent_dir_path = animations[current_idx]
                                     .source
                                     .to_file_path()
@@ -247,6 +251,46 @@ pub fn run_headless(
                                     }
                                 } else {
                                     error!("Failed to parse slideshow spec: {}", spec);
+                                }
+                            }
+                            RuntimeAction::Open { targets } => {
+                                info!("Open command received with targets: {:?}", targets);
+                                let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+                                let urls = targets
+                                    .iter()
+                                    .map(|input| MediaUrl::from_input(input, &cwd))
+                                    .collect::<Result<Vec<_>, _>>();
+                                match urls {
+                                    Ok(urls) => {
+                                        match resolve_media_urls(urls) {
+                                            Ok((resolved_urls, start_idx)) => {
+                                                let mut new_animations = Vec::new();
+                                                for url in resolved_urls {
+                                                    if let Ok(anim) = Animation::skim(url) {
+                                                        new_animations.push(anim);
+                                                    }
+                                                }
+                                                
+                                                animations = new_animations;
+                                                if animations.is_empty() {
+                                                    error!("No images found from provided targets");
+                                                } else {
+                                                    info!("Opened {} new images", animations.len());
+                                                    current_idx = start_idx.min(animations.len().saturating_sub(1));
+                                                    manager = SlideshowManager::new(default_cmd.clone());
+                                                    update_prefetch(&mut animations, current_idx, prefetch);
+                                                    animations[current_idx].ensure_parsed();
+
+                                                    if let Err(e) = manager.load_animation(&animations[current_idx]) {
+                                                        animations[current_idx].state = viia_core::AnimationState::Error(e);
+                                                    }
+                                                    last_rendered_frame = usize::MAX;
+                                                }
+                                            }
+                                            Err(e) => error!("Failed to resolve URLs: {}", e),
+                                        }
+                                    }
+                                    Err(e) => error!("Failed to parse URLs: {}", e),
                                 }
                             }
                             RuntimeAction::Help => {
@@ -272,23 +316,25 @@ pub fn run_headless(
             }
         }
 
-        match manager.tick(dt, &animations[current_idx]) {
-            Ok(should_advance) => {
-                if should_advance {
-                    current_idx = (current_idx + 1) % animations.len();
-                    info!(
-                        "Auto-advancing to next image: {}",
-                        animations[current_idx].source.as_str()
-                    );
-                    update_prefetch(&mut animations, current_idx, prefetch);
-                    if let Err(e) = manager.load_animation(&animations[current_idx]) {
-                        animations[current_idx].state = viia_core::AnimationState::Error(e);
+        if !animations.is_empty() {
+            match manager.tick(dt, &animations[current_idx]) {
+                Ok(should_advance) => {
+                    if should_advance {
+                        current_idx = (current_idx + 1) % animations.len();
+                        info!(
+                            "Auto-advancing to next image: {}",
+                            animations[current_idx].source.as_str()
+                        );
+                        update_prefetch(&mut animations, current_idx, prefetch);
+                        if let Err(e) = manager.load_animation(&animations[current_idx]) {
+                            animations[current_idx].state = viia_core::AnimationState::Error(e);
+                        }
+                        last_rendered_frame = usize::MAX;
                     }
-                    last_rendered_frame = usize::MAX;
                 }
-            }
-            Err(e) => {
-                animations[current_idx].state = viia_core::AnimationState::Error(e);
+                Err(e) => {
+                    animations[current_idx].state = viia_core::AnimationState::Error(e);
+                }
             }
         }
 
@@ -299,30 +345,40 @@ pub fn run_headless(
             || (!last_rendered_had_frame && has_frame);
 
         if needs_render {
-            let total_frames = match &animations[current_idx].state {
-                viia_core::AnimationState::Static { .. } => "1".to_string(),
-                viia_core::AnimationState::Animated { .. } => "?".to_string(),
-                _ => "0".to_string(),
-            };
+            if animations.is_empty() {
+                last_rendered_idx = current_idx;
+                last_rendered_frame = frame_idx;
+                last_rendered_had_frame = has_frame;
+            } else {
+                let total_frames = match &animations[current_idx].state {
+                    viia_core::AnimationState::Static { .. } => "1".to_string(),
+                    viia_core::AnimationState::Animated { .. } => "?".to_string(),
+                    _ => "0".to_string(),
+                };
 
-            if let viia_core::AnimationState::Error(err) = &animations[current_idx].state {
-                error!("Failed to render image: {}", err);
-            } else if manager.current_frame().is_some() {
-                // In headless mode, "rendering" is just logging the frame change
-                info!(
-                    "Rendering frame {}/{} of {}",
-                    frame_idx + 1,
-                    total_frames,
-                    animations[current_idx].source.as_str()
-                );
+                if let viia_core::AnimationState::Error(err) = &animations[current_idx].state {
+                    error!("Failed to render image: {}", err);
+                } else if manager.current_frame().is_some() {
+                    // In headless mode, "rendering" is just logging the frame change
+                    info!(
+                        "Rendering frame {}/{} of {}",
+                        frame_idx + 1,
+                        total_frames,
+                        animations[current_idx].source.as_str()
+                    );
+                }
+                last_rendered_idx = current_idx;
+                last_rendered_frame = frame_idx;
+                last_rendered_had_frame = has_frame;
             }
-            last_rendered_idx = current_idx;
-            last_rendered_frame = frame_idx;
-            last_rendered_had_frame = has_frame;
         }
 
-        let sleep_dur = manager.time_until_next_frame(&animations[current_idx]);
-        let poll_dur = sleep_dur.min(Duration::from_millis(50));
+        let sleep_dur = if animations.is_empty() {
+            Duration::from_millis(100)
+        } else {
+            manager.time_until_next_frame(&animations[current_idx])
+        };
+        let poll_dur = sleep_dur.min(Duration::from_millis(16)); // ~60fps poll
         thread::sleep(poll_dur);
     }
 

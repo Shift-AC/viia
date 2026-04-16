@@ -59,6 +59,13 @@ pub enum RuntimeAction {
     #[command(name = "l")]
     ShowPrevious,
 
+    /// Open a new set of files, directories, or URLs
+    #[command(name = "o", visible_alias = "open")]
+    Open {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        targets: Vec<String>,
+    },
+
     /// Pause/Resume the current slideshow
     #[command(name = "p")]
     TogglePause,

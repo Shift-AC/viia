@@ -1,10 +1,36 @@
 use base64::{Engine as _, engine::general_purpose};
-use image::ImageEncoder;
 use regex::Regex;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tauri::http::{Response, StatusCode};
 use tauri::{AppHandle, Emitter, Manager, State};
+use tauri_plugin_dialog::DialogExt;
+
+#[tauri::command]
+async fn open_file_dialog(app: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
+    info!("open_file_dialog called from frontend");
+    let tx = state.tx.clone();
+    app.dialog().file().pick_files(move |file_paths| {
+        if let Some(paths) = file_paths {
+            let mut targets = Vec::new();
+            for path in paths {
+                if let Ok(p) = path.into_path() {
+                    let safe_path = p.display().to_string().replace("\"", "\\\"");
+                    targets.push(format!("\"{}\"", safe_path));
+                }
+            }
+            if !targets.is_empty() {
+                let cmd = format!("o {}", targets.join(" "));
+                tauri::async_runtime::spawn(async move {
+                    if let Err(e) = tx.send(cmd).await {
+                        error!("Failed to send open command: {}", e);
+                    }
+                });
+            }
+        }
+    });
+    Ok(())
+}
 use tokio::sync::mpsc;
 use tracing::{debug, error, info, warn};
 use viia_core::{
@@ -85,24 +111,6 @@ fn log_to_terminal(msg: String) {
     info!("Frontend: {}", msg);
 }
 
-fn encode_frame_as_png_data_uri(frame: &image::RgbaImage) -> Result<String, String> {
-    let mut png_bytes = Vec::new();
-    {
-        let encoder = image::codecs::png::PngEncoder::new(&mut png_bytes);
-        encoder
-            .write_image(
-                frame.as_raw(),
-                frame.width(),
-                frame.height(),
-                image::ColorType::Rgba8.into(),
-            )
-            .map_err(|e| format!("Failed to encode PNG: {}", e))?;
-    }
-
-    let payload = general_purpose::STANDARD.encode(png_bytes);
-    Ok(format!("data:image/png;base64,{}", payload))
-}
-
 fn display_source_name(source: &MediaUrl) -> String {
     source
         .file_name()
@@ -173,28 +181,35 @@ fn engine_loop(
         }
     }
 
-    if animations.is_empty() {
-        warn!("No valid animations found, emitting empty status");
-        let _ = app.emit("status", "No images provided.");
-        if let Some(window) = app.get_webview_window("main") {
-            let _ = window.set_title("viia - No images provided.");
-        }
-        return;
-    }
-
-    info!("Successfully loaded {} animations", animations.len());
-    let mut current_idx = start_idx.min(animations.len().saturating_sub(1));
-    update_prefetch(&mut animations, current_idx, prefetch);
-    animations[current_idx].ensure_parsed();
-
     let default_cmd = vec![TimingCommand {
         loops: None,
         time_secs: None,
         infinite: true,
     }];
     let mut manager = SlideshowManager::new(default_cmd.clone());
-    if let Err(e) = manager.load_animation(&animations[current_idx]) {
-        animations[current_idx].state = viia_core::AnimationState::Error(e);
+
+    let mut current_idx = 0;
+    if !animations.is_empty() {
+        info!("Successfully loaded {} animations", animations.len());
+        current_idx = start_idx.min(animations.len().saturating_sub(1));
+        update_prefetch(&mut animations, current_idx, prefetch);
+        animations[current_idx].ensure_parsed();
+
+        if let Err(e) = manager.load_animation(&animations[current_idx]) {
+            animations[current_idx].state = viia_core::AnimationState::Error(e);
+        }
+    } else {
+        info!("Started with empty animation list");
+        let _ = app.emit("status", "No images provided.");
+        let _ = app.emit("status-meta", StatusPayload {
+            current_index: 0,
+            total: 0,
+            display_text: "No images provided.".to_string(),
+            playback_state: "Paused".to_string(),
+        });
+        if let Some(window) = app.get_webview_window("main") {
+            let _ = window.set_title("viia - No images provided.");
+        }
     }
 
     let mut zoom_mode = viia_core::ZoomMode::Shrink;
@@ -209,7 +224,9 @@ fn engine_loop(
         let dt = now.duration_since(last_tick);
         last_tick = now;
 
-        update_prefetch(&mut animations, current_idx, prefetch);
+        if !animations.is_empty() {
+            update_prefetch(&mut animations, current_idx, prefetch);
+        }
 
         // Process commands
         let mut commands_to_process = Vec::new();
@@ -256,6 +273,7 @@ fn engine_loop(
                             info!("Toggled pause state, now: {:?}", manager.state());
                         }
                         RuntimeAction::ShowNext => {
+                            if animations.is_empty() { continue; }
                             current_idx = (current_idx + 1) % animations.len();
                             info!(
                                 "Showing next animation: index {} ({})",
@@ -269,6 +287,7 @@ fn engine_loop(
                             last_rendered_frame = usize::MAX;
                         }
                         RuntimeAction::ShowPrevious => {
+                            if animations.is_empty() { continue; }
                             if current_idx == 0 {
                                 current_idx = animations.len() - 1;
                             } else {
@@ -286,6 +305,7 @@ fn engine_loop(
                             last_rendered_frame = usize::MAX;
                         }
                         RuntimeAction::Goto { index } => {
+                            if animations.is_empty() { continue; }
                             if let Some(target_idx) = index {
                                 let zero_based_idx = match shell_index_to_zero_based(target_idx) {
                                     Ok(index) => index,
@@ -343,6 +363,7 @@ fn engine_loop(
                             debug!("Zoom mode updated in GUI to {:?}", zoom_mode);
                         }
                         RuntimeAction::StartSlideshow { cmd } => {
+                            if animations.is_empty() { continue; }
                             let spec = cmd.join(" ");
                             info!("Starting slideshow with spec: '{}'", spec);
                             let parent_dir_path = animations[current_idx]
@@ -368,6 +389,56 @@ fn engine_loop(
                                 );
                             }
                         }
+                        RuntimeAction::Open { targets } => {
+                            let urls = targets
+                                .iter()
+                                .map(|input| MediaUrl::from_input(input, &cwd))
+                                .collect::<Result<Vec<_>, _>>();
+                            match urls {
+                                Ok(urls) => {
+                                    match resolve_media_urls(urls) {
+                                        Ok((resolved_urls, start_idx)) => {
+                                            let mut new_animations = Vec::new();
+                                            for url in resolved_urls {
+                                                if let Ok(anim) = Animation::skim(url) {
+                                                    new_animations.push(anim);
+                                                }
+                                            }
+                                            
+                                            animations = new_animations;
+                                            if animations.is_empty() {
+                                                warn!("No valid animations found, emitting empty status");
+                                                let _ = app.emit("status", "No images provided.");
+                                                let _ = app.emit("status-meta", StatusPayload {
+                                                    current_index: 0,
+                                                    total: 0,
+                                                    display_text: "No images provided.".to_string(),
+                                                    playback_state: "Paused".to_string(),
+                                                });
+                                                if let Some(window) = app.get_webview_window("main") {
+                                                    let _ = window.set_title("viia - No images provided.");
+                                                }
+                                                // Reset everything so it renders empty state
+                                                last_rendered_frame = usize::MAX;
+                                            } else {
+                                                info!("Opened {} new animations", animations.len());
+                                                current_idx = start_idx.min(animations.len().saturating_sub(1));
+                                                manager = SlideshowManager::new(default_cmd.clone());
+                                                update_prefetch(&mut animations, current_idx, prefetch);
+                                                animations[current_idx].ensure_parsed();
+
+                                                if let Err(e) = manager.load_animation(&animations[current_idx]) {
+                                                    animations[current_idx].state = viia_core::AnimationState::Error(e);
+                                                }
+                                                last_rendered_frame = usize::MAX;
+                                            }
+                                        }
+                                        Err(e) => error!("Failed to resolve URLs: {}", e),
+                                    }
+                                }
+                                Err(e) => error!("Failed to parse URLs: {}", e),
+                            }
+                        }
                         RuntimeAction::Help => {
                             unreachable!("Help is handled internally by parse_line")
                         }
@@ -391,24 +462,26 @@ fn engine_loop(
             }
         }
 
-        match manager.tick(dt, &animations[current_idx]) {
-            Ok(should_advance) => {
-                if should_advance {
-                    current_idx = (current_idx + 1) % animations.len();
-                    info!(
-                        "Automatically advancing to next animation: index {} ({})",
-                        current_idx,
-                        animations[current_idx].source.as_str()
-                    );
-                    update_prefetch(&mut animations, current_idx, prefetch);
-                    if let Err(e) = manager.load_animation(&animations[current_idx]) {
-                        animations[current_idx].state = viia_core::AnimationState::Error(e);
+        if !animations.is_empty() {
+            match manager.tick(dt, &animations[current_idx]) {
+                Ok(should_advance) => {
+                    if should_advance {
+                        current_idx = (current_idx + 1) % animations.len();
+                        info!(
+                            "Automatically advancing to next animation: index {} ({})",
+                            current_idx,
+                            animations[current_idx].source.as_str()
+                        );
+                        update_prefetch(&mut animations, current_idx, prefetch);
+                        if let Err(e) = manager.load_animation(&animations[current_idx]) {
+                            animations[current_idx].state = viia_core::AnimationState::Error(e);
+                        }
+                        last_rendered_frame = usize::MAX;
                     }
-                    last_rendered_frame = usize::MAX;
                 }
-            }
-            Err(e) => {
-                animations[current_idx].state = viia_core::AnimationState::Error(e);
+                Err(e) => {
+                    animations[current_idx].state = viia_core::AnimationState::Error(e);
+                }
             }
         }
 
@@ -424,7 +497,12 @@ fn engine_loop(
                 current_idx, last_rendered_idx, frame_idx, last_rendered_frame
             );
 
-            let zoom_str = match &zoom_mode {
+            if animations.is_empty() {
+                last_rendered_idx = current_idx;
+                last_rendered_frame = frame_idx;
+                last_rendered_had_frame = has_frame;
+            } else {
+                let zoom_str = match &zoom_mode {
                 viia_core::ZoomMode::Fit => "fit".to_string(),
                 viia_core::ZoomMode::Shrink => "shrink".to_string(),
                 viia_core::ZoomMode::Fixed(s) => s.to_string(),
@@ -432,31 +510,84 @@ fn engine_loop(
 
             if let Some(frame) = manager.current_frame() {
                 if animations[current_idx].is_single_frame() {
-                    let data_uri = match encode_frame_as_png_data_uri(&frame.data) {
-                        Ok(data_uri) => data_uri,
-                        Err(err) => {
-                            error!("Failed to encode static frame for GUI: {}", err);
-                            continue;
+                    let source = &animations[current_idx].source;
+                    let image_path = source.as_str().to_string();
+                    
+                    let mut path = None;
+                    
+                    if source.scheme() == "file" {
+                        if let Some(local_path) = source.to_file_path() {
+                            path = Some(local_path.to_string_lossy().to_string());
                         }
-                    };
-                    let image_path = animations[current_idx].source.as_str().to_string();
-                    debug!(
-                        "Emitting static frame as data URI for animation {} ({})",
-                        current_idx, image_path
-                    );
-                    if let Err(e) = app.emit(
-                        "frame",
-                        FramePayload {
-                            data_uri: Some(data_uri),
-                            path: None,
-                            blob_url: None,
-                            zoom_mode: Some(zoom_str),
-                            image_path: Some(image_path),
-                            width: None,
-                            height: None,
-                        },
-                    ) {
-                        error!("Failed to emit frame event: {}", e);
+                    }
+                    
+                    if let Some(valid_path) = path {
+                        debug!(
+                            "Emitting static frame for animation {} ({})",
+                            current_idx, image_path
+                        );
+                        if let Err(e) = app.emit(
+                            "frame",
+                            FramePayload {
+                                data_uri: None,
+                                path: Some(valid_path),
+                                blob_url: None,
+                                zoom_mode: Some(zoom_str),
+                                image_path: Some(image_path),
+                                width: None,
+                                height: None,
+                            },
+                        ) {
+                            error!("Failed to emit frame event: {}", e);
+                        }
+                    } else {
+                        // Serve raw RGBA bytes for static sftp or malformed files
+                        let width = frame.data.width();
+                        let height = frame.data.height();
+                        let buffer = frame.data.as_raw().clone();
+
+                        *frame_state.buffer.lock().unwrap() = buffer;
+                        *frame_state.content_type.lock().unwrap() =
+                            "application/octet-stream".to_string();
+
+                        // Encode parameters for caching
+                        let path_b64 = general_purpose::URL_SAFE_NO_PAD.encode(image_path.as_bytes());
+
+                        #[cfg(any(windows, target_os = "android"))]
+                        let protocol_prefix = "http://viia.localhost";
+                        #[cfg(not(any(windows, target_os = "android")))]
+                        let protocol_prefix = "viia://localhost";
+
+                        let blob_url = if let viia_core::ZoomMode::Fixed(_) = zoom_mode {
+                            format!(
+                                "{}/frame?path={}&frame={}&scale={}",
+                                protocol_prefix, path_b64, frame_idx, zoom_str
+                            )
+                        } else {
+                            format!(
+                                "{}/frame?path={}&frame={}",
+                                protocol_prefix, path_b64, frame_idx
+                            )
+                        };
+
+                        debug!(
+                            "Emitting blob url {} for animation {}",
+                            blob_url, current_idx
+                        );
+                        if let Err(e) = app.emit(
+                            "frame",
+                            FramePayload {
+                                data_uri: None,
+                                path: None,
+                                blob_url: Some(blob_url),
+                                zoom_mode: Some(zoom_str),
+                                image_path: Some(image_path),
+                                width: Some(width),
+                                height: Some(height),
+                            },
+                        ) {
+                            error!("Failed to emit frame event: {}", e);
+                        }
                     }
                 } else {
                     // Serve raw RGBA bytes for animations
@@ -511,18 +642,32 @@ fn engine_loop(
             } else if let viia_core::AnimationState::Error(err) = &animations[current_idx].state {
                 error!("Failed to render image: {}", err);
 
-                // Clear the image and we will emit an error in the status message
-                let path = animations[current_idx].source.as_str().to_string();
+                let path_str = animations[current_idx].source.as_str().to_string();
+                
+                // Use a 1x1 transparent raw RGBA buffer instead of base64
+                let buffer = vec![0u8, 0, 0, 0];
+                *frame_state.buffer.lock().unwrap() = buffer;
+                *frame_state.content_type.lock().unwrap() = "application/octet-stream".to_string();
+                
+                let path_b64 = general_purpose::URL_SAFE_NO_PAD.encode(path_str.as_bytes());
+                
+                #[cfg(any(windows, target_os = "android"))]
+                let protocol_prefix = "http://viia.localhost";
+                #[cfg(not(any(windows, target_os = "android")))]
+                let protocol_prefix = "viia://localhost";
+
+                let blob_url = format!("{}/frame?path={}&frame=error", protocol_prefix, path_b64);
+
                 if let Err(e) = app.emit(
                     "frame",
                     FramePayload {
-                        data_uri: Some("data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7".to_string()), // 1x1 transparent gif
+                        data_uri: None,
                         path: None,
-                        blob_url: None,
+                        blob_url: Some(blob_url),
                         zoom_mode: Some(zoom_str),
-                        image_path: Some(path),
-                        width: None,
-                        height: None,
+                        image_path: Some(path_str),
+                        width: Some(1),
+                        height: Some(1),
                     },
                 ) {
                     error!("Failed to emit frame event: {}", e);
@@ -595,12 +740,17 @@ fn engine_loop(
                 let _ = window.set_title(&format!("viia - {}", file_name));
             }
 
-            last_rendered_idx = current_idx;
-            last_rendered_frame = frame_idx;
-            last_rendered_had_frame = has_frame;
+                last_rendered_idx = current_idx;
+                last_rendered_frame = frame_idx;
+                last_rendered_had_frame = has_frame;
+            }
         }
 
-        let sleep_dur = manager.time_until_next_frame(&animations[current_idx]);
+        let sleep_dur = if animations.is_empty() {
+            Duration::from_millis(100)
+        } else {
+            manager.time_until_next_frame(&animations[current_idx])
+        };
         let poll_dur = sleep_dur.min(Duration::from_millis(16)); // ~60fps poll
         std::thread::sleep(poll_dur);
     }
@@ -626,6 +776,7 @@ pub fn run_gui(
     let frame_state_protocol = frame_state.clone();
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .register_uri_scheme_protocol("viia", move |_app, _request| {
             let buffer = frame_state_protocol.buffer.lock().unwrap().clone();
             let content_type = frame_state_protocol.content_type.lock().unwrap().clone();
@@ -647,7 +798,8 @@ pub fn run_gui(
         .invoke_handler(tauri::generate_handler![
             send_command,
             start_engine,
-            log_to_terminal
+            log_to_terminal,
+            open_file_dialog
         ])
         .setup(move |app| {
             info!("Tauri setup hook called, spawning engine loop thread");

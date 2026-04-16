@@ -102,19 +102,33 @@ impl Animation {
 
         std::thread::spawn(move || {
             let result = (|| -> Result<AnimationState, EngineError> {
-                let bytes = source_access().read_all(&source)?;
+                let source_data = source_access().read(&source)?;
 
                 if cancel_token_clone.load(Ordering::Relaxed) {
                     return Err(EngineError::UnsupportedFormat); // Treat cancellation as a generic early exit
                 }
 
                 // Check format first
-                let cursor = std::io::Cursor::new(bytes.as_ref());
-                let format = image::ImageReader::new(cursor)
-                    .with_guessed_format()
-                    .map_err(|e| EngineError::ImageLoadError(image::ImageError::IoError(e)))?
-                    .format()
-                    .ok_or(EngineError::UnsupportedFormat)?;
+                let format = match &source_data {
+                    crate::source_access::SourceData::Bytes(bytes) => {
+                        let cursor = std::io::Cursor::new(bytes.as_ref());
+                        image::ImageReader::new(cursor)
+                            .with_guessed_format()
+                            .map_err(|e| EngineError::ImageLoadError(image::ImageError::IoError(e)))?
+                            .format()
+                            .ok_or(EngineError::UnsupportedFormat)?
+                    }
+                    crate::source_access::SourceData::LocalFile(path) => {
+                        let file = std::fs::File::open(path)
+                            .map_err(|e| EngineError::ImageLoadError(image::ImageError::IoError(e)))?;
+                        let reader = std::io::BufReader::new(file);
+                        image::ImageReader::new(reader)
+                            .with_guessed_format()
+                            .map_err(|e| EngineError::ImageLoadError(image::ImageError::IoError(e)))?
+                            .format()
+                            .ok_or(EngineError::UnsupportedFormat)?
+                    }
+                };
 
                 if cancel_token_clone.load(Ordering::Relaxed) {
                     return Err(EngineError::UnsupportedFormat);
@@ -125,10 +139,21 @@ impl Animation {
                         // Check if it's actually an animation
                         let is_animated = match format {
                             image::ImageFormat::WebP => {
-                                let peek_cursor = std::io::Cursor::new(bytes.as_ref());
-                                image::codecs::webp::WebPDecoder::new(peek_cursor)
-                                    .map(|d| d.has_animation())
-                                    .unwrap_or(false)
+                                match &source_data {
+                                    crate::source_access::SourceData::Bytes(bytes) => {
+                                        let peek_cursor = std::io::Cursor::new(bytes.as_ref());
+                                        image::codecs::webp::WebPDecoder::new(peek_cursor)
+                                            .map(|d| d.has_animation())
+                                            .unwrap_or(false)
+                                    }
+                                    crate::source_access::SourceData::LocalFile(path) => {
+                                        let peek_file = std::fs::File::open(path).unwrap();
+                                        let peek_reader = std::io::BufReader::new(peek_file);
+                                        image::codecs::webp::WebPDecoder::new(peek_reader)
+                                            .map(|d| d.has_animation())
+                                            .unwrap_or(false)
+                                    }
+                                }
                             }
                             _ => true, // Assuming Gif is usually animated, or handle accordingly
                         };
@@ -138,7 +163,14 @@ impl Animation {
                         }
 
                         if !is_animated {
-                            let frames = Self::load_static(bytes.as_ref())?;
+                            let frames = match &source_data {
+                                crate::source_access::SourceData::Bytes(bytes) => {
+                                    Self::load_static_from_memory(bytes.as_ref())?
+                                }
+                                crate::source_access::SourceData::LocalFile(path) => {
+                                    Self::load_static_from_path(path)?
+                                }
+                            };
                             let first_frame = frames.into_iter().next().unwrap();
                             return Ok(AnimationState::Static {
                                 frame: first_frame,
@@ -149,6 +181,8 @@ impl Animation {
                         if cancel_token_clone.load(Ordering::Relaxed) {
                             return Err(EngineError::UnsupportedFormat);
                         }
+
+                        let bytes = source_data.as_bytes()?;
 
                         // Do a quick validation check and cache the first frame
                         let mut decoder =
@@ -177,7 +211,14 @@ impl Animation {
                         })
                     }
                     _ => {
-                        let frames = Self::load_static(bytes.as_ref())?;
+                        let frames = match &source_data {
+                            crate::source_access::SourceData::Bytes(bytes) => {
+                                Self::load_static_from_memory(bytes.as_ref())?
+                            }
+                            crate::source_access::SourceData::LocalFile(path) => {
+                                Self::load_static_from_path(path)?
+                            }
+                        };
                         let first_frame = frames.into_iter().next().unwrap();
                         Ok(AnimationState::Static {
                             frame: first_frame,
@@ -286,8 +327,20 @@ impl Animation {
         matches!(&self.state, AnimationState::Static { .. })
     }
 
-    fn load_static(bytes: &[u8]) -> Result<Vec<Frame>, EngineError> {
+    fn load_static_from_memory(bytes: &[u8]) -> Result<Vec<Frame>, EngineError> {
         let img = image::load_from_memory(bytes)?;
+        let rgba = img.into_rgba8();
+
+        let frame = Frame {
+            data: rgba,
+            duration: Duration::from_millis(100), // Standardized 100ms for static images
+        };
+
+        Ok(vec![frame])
+    }
+
+    fn load_static_from_path(path: &std::path::Path) -> Result<Vec<Frame>, EngineError> {
+        let img = image::open(path)?;
         let rgba = img.into_rgba8();
 
         let frame = Frame {

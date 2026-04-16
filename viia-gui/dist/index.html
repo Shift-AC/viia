@@ -244,6 +244,145 @@
         outline: none;
       }
 
+      /* Empty State Styles */
+      #empty-state {
+        margin: auto;
+        display: none;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 24px;
+        z-index: 100;
+      }
+      .empty-state-icon {
+        width: 64px;
+        height: 64px;
+        fill: rgba(255, 255, 255, 0.2);
+        margin-bottom: -8px;
+      }
+      .empty-state-text {
+        font-size: 1.2rem;
+        color: rgba(255, 255, 255, 0.5);
+        text-transform: uppercase;
+        letter-spacing: 1px;
+      }
+      .empty-state-actions {
+        display: flex;
+        gap: 16px;
+      }
+      .action-btn {
+        background: rgba(255, 255, 255, 0.1);
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        color: white;
+        cursor: pointer;
+        padding: 10px 20px;
+        border-radius: 6px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 0.95rem;
+        transition: all 0.2s ease;
+      }
+      .action-btn:hover {
+        background: rgba(255, 255, 255, 0.2);
+        border-color: rgba(255, 255, 255, 0.4);
+      }
+      .action-btn:active {
+        background: rgba(255, 255, 255, 0.15);
+      }
+      .action-btn svg {
+        width: 20px;
+        height: 20px;
+        fill: currentColor;
+      }
+
+      /* URL Input Modal */
+      #url-modal-bg {
+        position: fixed;
+        top: 0; left: 0; right: 0; bottom: 0;
+        background: rgba(0, 0, 0, 0.6);
+        backdrop-filter: blur(4px);
+        -webkit-backdrop-filter: blur(4px);
+        z-index: 3000;
+        display: none;
+        justify-content: center;
+        align-items: center;
+      }
+      #url-modal {
+        background: rgba(30, 30, 30, 0.95);
+        border: 1px solid #444;
+        border-radius: 8px;
+        width: 400px;
+        display: flex;
+        flex-direction: column;
+        box-shadow: 0 10px 40px rgba(0, 0, 0, 0.7);
+        overflow: hidden;
+      }
+      #url-header {
+        padding: 16px 24px;
+        border-bottom: 1px solid #444;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        background: rgba(0, 0, 0, 0.3);
+      }
+      #url-header h2 {
+        margin: 0;
+        font-size: 1.1rem;
+        font-weight: normal;
+        color: #eee;
+      }
+      #btn-close-url {
+        background: none;
+        border: none;
+        color: #aaa;
+        font-size: 1.5rem;
+        cursor: pointer;
+        line-height: 1;
+        padding: 0;
+        transition: color 0.2s;
+      }
+      #btn-close-url:hover {
+        color: white;
+      }
+      #url-content {
+        padding: 24px;
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+      }
+      #url-input {
+        width: 100%;
+        min-height: 120px;
+        background: rgba(0,0,0,0.5);
+        border: 1px solid #555;
+        color: white;
+        padding: 10px 12px;
+        border-radius: 4px;
+        font-size: 0.95rem;
+        outline: none;
+        box-sizing: border-box;
+        resize: vertical;
+        font-family: inherit;
+      }
+      #url-input:focus {
+        border-color: #888;
+      }
+      #btn-submit-url {
+        align-self: flex-end;
+        background: #007acc;
+        border: none;
+        color: white;
+        padding: 8px 16px;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 0.95rem;
+        transition: background 0.2s;
+      }
+      #btn-submit-url:hover {
+        background: #0098ff;
+      }
+
       /* Custom Scrollbar Styling */
       ::-webkit-scrollbar {
         width: 10px;
@@ -442,6 +581,25 @@
   </head>
   <body>
     <div id="window-drag-bar" data-tauri-drag-region></div>
+
+    <div id="empty-state">
+      <svg class="empty-state-icon" viewBox="0 0 24 24">
+        <path d="M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z"/>
+      </svg>
+      <div class="empty-state-text">No Images Loaded</div>
+      
+      <div class="empty-state-actions">
+        <button class="action-btn" onclick="document.getElementById('btn-open-file').click()">
+          <svg viewBox="0 0 24 24"><path d="M20 6h-8l-2-2H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2zm0 12H4V8h16v10z"/></svg>
+          Open File
+        </button>
+        <button class="action-btn" onclick="document.getElementById('btn-open-url').click()">
+          <svg viewBox="0 0 24 24"><path d="M3.9 12c0-1.71 1.39-3.1 3.1-3.1h4V7H7c-2.76 0-5 2.24-5 5s2.24 5 5 5h4v-1.9H7c-1.71 0-3.1-1.39-3.1-3.1zM8 13h8v-2H8v2zm9-6h-4v1.9h4c1.71 0 3.1 1.39 3.1 3.1s-1.39 3.1-3.1 3.1h-4V17h4c2.76 0 5-2.24 5-5s-2.24-5-5-5z"/></svg>
+          Open URL
+        </button>
+      </div>
+    </div>
+
     <img id="viewer" src="" style="display: none;" />
     <canvas id="viewer-canvas" style="display: none;"></canvas>
     <div id="overlay">
@@ -479,12 +637,6 @@
         <button class="control-btn" id="btn-next" title="Next Image (Right Arrow)">
           <svg viewBox="0 0 24 24"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg>
         </button>
-        <button class="control-btn" id="btn-zoom-in" title="Zoom In">
-          <svg viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27A6.471 6.471 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 12.51 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 12.51 14 9.5 14zm2.5-4h-2v2H9v-2H7V9h2V7h1v2h2v1z"/></svg>
-        </button>
-        <button class="control-btn" id="btn-zoom-out" title="Zoom Out">
-          <svg viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27A6.471 6.471 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 12.51 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 12.51 14 9.5 14zM7 9h5v1H7z"/></svg>
-        </button>
         <button class="control-btn" id="btn-zoom-mode" title="Zoom Mode (Shrink/Fit)">
           <svg id="icon-zoom-fixed" viewBox="0 0 24 24" style="display: none;">
             <path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/>
@@ -500,6 +652,12 @@
         </button>
         <button class="control-btn" id="btn-slideshow" title="Play Slideshow">
           <svg viewBox="0 0 24 24"><path d="M4 6H2v14c0 1.1.9 2 2 2h14v-2H4V6zm16-4H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-8 12.5v-9l6 4.5-6 4.5z"/></svg>
+        </button>
+        <button class="control-btn" id="btn-open-file" title="Open File">
+          <svg viewBox="0 0 24 24"><path d="M20 6h-8l-2-2H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2zm0 12H4V8h16v10z"/></svg>
+        </button>
+        <button class="control-btn" id="btn-open-url" title="Open URL">
+          <svg viewBox="0 0 24 24"><path d="M3.9 12c0-1.71 1.39-3.1 3.1-3.1h4V7H7c-2.76 0-5 2.24-5 5s2.24 5 5 5h4v-1.9H7c-1.71 0-3.1-1.39-3.1-3.1zM8 13h8v-2H8v2zm9-6h-4v1.9h4c1.71 0 3.1 1.39 3.1 3.1s-1.39 3.1-3.1 3.1h-4V17h4c2.76 0 5-2.24 5-5s-2.24-5-5-5z"/></svg>
         </button>
         <button class="control-btn" id="btn-cmd" title="Command Prompt (:)">
           <svg viewBox="0 0 24 24"><path d="M9 4l-2 2 6 6-6 6 2 2 8-8-8-8zm4 14h8v2h-8v-2z"/></svg>
@@ -523,9 +681,24 @@
         </div>
         </div>
       </div>
+      </div>
     </div>
     <div id="command-prompt">
       <input type="text" id="command-input" placeholder=":" />
+    </div>
+
+    <!-- URL Input Modal Overlay -->
+    <div id="url-modal-bg">
+      <div id="url-modal">
+        <div id="url-header">
+          <h2>Open from URL</h2>
+          <button id="btn-close-url" title="Close (Esc)">&times;</button>
+        </div>
+        <div id="url-content">
+          <textarea id="url-input" placeholder="sftp://user:password@host/path/to/image.jpg&#10;file:///C:/path/to/local/image.png"></textarea>
+          <button id="btn-submit-url">Open</button>
+        </div>
+      </div>
     </div>
 
     <!-- Help Modal Overlay -->
@@ -655,6 +828,13 @@
       const btnCloseMatch = document.getElementById('btn-close-match');
       const matchSummary = document.getElementById('match-summary');
       const matchTableBody = document.getElementById('match-table-body');
+      
+      const btnOpenFile = document.getElementById('btn-open-file');
+      const btnOpenUrl = document.getElementById('btn-open-url');
+      const urlModalBg = document.getElementById('url-modal-bg');
+      const btnCloseUrl = document.getElementById('btn-close-url');
+      const btnSubmitUrl = document.getElementById('btn-submit-url');
+      const urlInput = document.getElementById('url-input');
 
       let currentScale = 1.0;
       let currentMode = 'shrink'; // Track current zoom mode ('fit', 'shrink', or fixed number)
@@ -1288,20 +1468,6 @@
       document.getElementById('btn-pause').addEventListener('click', () => invoke('send_command', { cmd: 'p' }));
       document.getElementById('btn-next').addEventListener('click', () => invoke('send_command', { cmd: 'r' }));
       
-      document.getElementById('btn-zoom-in').addEventListener('click', () => {
-        let scale = getRealScale() * 1.2;
-        scale = Math.min(scale, 50.0);
-        tempZoomScale = null;
-        invoke('send_command', { cmd: `z ${scale}` });
-      });
-
-      document.getElementById('btn-zoom-out').addEventListener('click', () => {
-        let scale = getRealScale() / 1.2;
-        scale = Math.max(scale, 0.01);
-        tempZoomScale = null;
-        invoke('send_command', { cmd: `z ${scale}` });
-      });
-
       document.getElementById('btn-zoom-mode').addEventListener('click', () => {
         tempZoomScale = null; // Clear any manual zoom when explicitly changing mode
         if (currentMode === 'shrink') {
@@ -1312,6 +1478,49 @@
       });
 
       document.getElementById('btn-slideshow').addEventListener('click', () => invoke('send_command', { cmd: 's L1T3' }));
+
+      btnOpenFile.addEventListener('click', async () => {
+        try {
+          await invoke('open_file_dialog');
+        } catch (e) {
+          console.error("Failed to open file dialog:", e);
+        }
+      });
+
+      btnOpenUrl.addEventListener('click', () => {
+        urlModalBg.style.display = 'flex';
+        urlInput.focus();
+      });
+
+      function closeUrlModal() {
+        urlModalBg.style.display = 'none';
+        urlInput.value = '';
+      }
+
+      btnCloseUrl.addEventListener('click', closeUrlModal);
+      
+      urlModalBg.addEventListener('click', (e) => {
+        if (e.target === urlModalBg) closeUrlModal();
+      });
+
+      btnSubmitUrl.addEventListener('click', async () => {
+        const text = urlInput.value.trim();
+        if (text) {
+          const urls = text.split('\n').map(u => u.trim()).filter(u => u);
+          if (urls.length > 0) {
+            const escapedUrls = urls.map(u => `"${u.replace(/"/g, '\\"')}"`);
+            const cmd = `o ${escapedUrls.join(' ')}`;
+            await invoke('send_command', { cmd });
+            closeUrlModal();
+          }
+        }
+      });
+
+      urlInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+          closeUrlModal();
+        }
+      });
 
       document.getElementById('btn-cmd').addEventListener('click', () => {
         commandPrompt.style.display = 'block';
@@ -1594,6 +1803,28 @@
           currentStatusIndex = event.payload.current_index;
           currentStatusTotal = event.payload.total;
           currentStatusMsg = event.payload.display_text;
+
+          if (currentStatusTotal === 0) {
+            document.getElementById('empty-state').style.display = 'flex';
+            document.getElementById('viewer').style.display = 'none';
+            document.getElementById('viewer-canvas').style.display = 'none';
+            
+            document.querySelectorAll('.control-btn:not(#btn-cmd):not(#btn-open-file):not(#btn-open-url):not(#btn-minimize):not(#btn-maximize):not(#btn-close)').forEach(btn => {
+              btn.disabled = true;
+              btn.style.opacity = '0.3';
+            });
+            document.getElementById('index-input').disabled = true;
+            document.getElementById('scale-input').disabled = true;
+          } else {
+            document.getElementById('empty-state').style.display = 'none';
+            
+            document.querySelectorAll('.control-btn').forEach(btn => {
+              btn.disabled = false;
+              btn.style.opacity = '1.0';
+            });
+            document.getElementById('index-input').disabled = false;
+            document.getElementById('scale-input').disabled = false;
+          }
 
           if (event.payload.playback_state === "Playing") {
             document.getElementById('icon-play').style.display = 'none';
