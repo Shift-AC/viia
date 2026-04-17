@@ -33,7 +33,31 @@ pub fn resolve_media_urls(inputs: Vec<MediaUrl>) -> Result<(Vec<MediaUrl>, usize
                     resolved.push(input);
                 }
             }
-            "sftp" => resolved.push(input),
+            "sftp" => {
+                let file_name_opt = input.file_name();
+                let looks_like_file = file_name_opt.as_deref().map(is_supported_image_name).unwrap_or(false);
+
+                if !looks_like_file && let Ok(listing) = sftp_transport::list_directory(&input) {
+                    let mut children = listing
+                        .entries
+                        .into_iter()
+                        .filter(|name| is_supported_image_name(name))
+                        .filter_map(|name| input.join_file_name(&name))
+                        .collect::<Vec<_>>();
+
+                    if matches!(listing.order, ListingOrder::LexicographicFallback) {
+                        children.sort_by_key(|x| x.file_name().unwrap_or_default().to_ascii_lowercase());
+                    }
+
+                    if !children.is_empty() {
+                        resolved.extend(children);
+                        continue;
+                    } else if file_name_opt.is_none() {
+                        continue;
+                    }
+                }
+                resolved.push(input);
+            }
             other => return Err(format!("Unsupported source scheme: {}", other)),
         }
     }
@@ -70,11 +94,32 @@ fn resolve_single_file_url(input: &MediaUrl) -> Result<(Vec<MediaUrl>, usize), S
 }
 
 fn resolve_single_sftp_file(input: &MediaUrl) -> Result<(Vec<MediaUrl>, usize), String> {
+    let file_name_opt = input.file_name();
+    let looks_like_file = file_name_opt.as_deref().map(is_supported_image_name).unwrap_or(false);
+
+    if !looks_like_file && let Ok(listing) = sftp_transport::list_directory(input) {
+        let mut children = listing
+            .entries
+            .into_iter()
+            .filter(|name| is_supported_image_name(name))
+            .filter_map(|name| input.join_file_name(&name))
+            .collect::<Vec<_>>();
+
+        if matches!(listing.order, ListingOrder::LexicographicFallback) {
+            children.sort_by_key(|x| x.file_name().unwrap_or_default().to_ascii_lowercase());
+        }
+
+        if !children.is_empty() {
+            return Ok((children, 0));
+        } else if file_name_opt.is_none() {
+            return Err(format!("No supported images found in SFTP directory: {}", input.as_str()));
+        }
+    }
+
     let parent = input
         .parent()
         .ok_or_else(|| format!("SFTP URL has no parent directory: {}", input.as_str()))?;
-    let file_name = input
-        .file_name()
+    let file_name = file_name_opt
         .ok_or_else(|| format!("SFTP URL has no file name: {}", input.as_str()))?;
 
     match sftp_transport::list_directory(&parent) {

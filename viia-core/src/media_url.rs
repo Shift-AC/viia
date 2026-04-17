@@ -100,30 +100,25 @@ impl MediaUrl {
 
     pub fn parent(&self) -> Option<Self> {
         let mut url = self.to_url().ok()?;
-        let mut segments = url
-            .path_segments()
-            .map(|s| s.map(|x| x.to_string()).collect::<Vec<_>>())?;
-
-        if segments.is_empty() {
+        
+        let path = url.path().to_string();
+        if path == "/" || path == "//" || path.is_empty() {
             return None;
         }
-
-        if self.as_str().ends_with('/') {
-            segments.pop();
+        
+        let mut path_trimmed = path.as_str();
+        if path_trimmed.ends_with('/') {
+            path_trimmed = &path_trimmed[..path_trimmed.len() - 1];
+        }
+        
+        let last_slash = path_trimmed.rfind('/');
+        if let Some(idx) = last_slash {
+            let new_path = &path_trimmed[..=idx]; // include the slash
+            url.set_path(new_path);
+            Some(Self::from_url(url))
         } else {
-            let _ = segments.pop();
+            None
         }
-
-        url.path_segments_mut().ok()?.clear();
-        for segment in &segments {
-            url.path_segments_mut().ok()?.push(segment);
-        }
-        if !url.path().ends_with('/') {
-            let mut path = url.path().to_string();
-            path.push('/');
-            url.set_path(&path);
-        }
-        Some(Self::from_url(url))
     }
 
     pub fn join_file_name(&self, file_name: &str) -> Option<Self> {
@@ -166,5 +161,16 @@ mod tests {
         assert_eq!(parent.as_str(), "sftp://example.com/path/");
         let rebuilt = parent.join_file_name("image.png").unwrap();
         assert_eq!(rebuilt, url);
+    }
+
+    #[test]
+    fn test_join_file_name_on_directory() {
+        let url = MediaUrl::parse_url("sftp://example.com/dir").unwrap();
+        let joined = url.join_file_name("a.png").unwrap();
+        assert_eq!(joined.as_str(), "sftp://example.com/dir/a.png");
+
+        let url2 = MediaUrl::parse_url("sftp://example.com/dir/").unwrap();
+        let joined2 = url2.join_file_name("a.png").unwrap();
+        assert_eq!(joined2.as_str(), "sftp://example.com/dir/a.png");
     }
 }

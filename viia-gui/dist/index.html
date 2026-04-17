@@ -722,11 +722,11 @@
                   <h3>GUI Shortcuts</h3>
                   <div class="help-list" style="flex: 1;">
                       <div class="help-item">
-                          <span class="help-key">�?/span>
+                          <span class="help-key">&rarr;</span>
                           <span class="help-desc">Next image</span>
                       </div>
                       <div class="help-item">
-                          <span class="help-key">�?/span>
+                          <span class="help-key">&larr;</span>
                           <span class="help-desc">Previous image</span>
                       </div>
                       <div class="help-item">
@@ -1384,6 +1384,14 @@
 
       window.addEventListener('keydown', async (e) => {
         if (document.activeElement === scaleInput || document.activeElement === indexInput) return;
+
+        if (urlModalBg.style.display === 'flex') {
+          if (e.key === 'Escape') {
+            closeUrlModal();
+            e.preventDefault();
+          }
+          return;
+        }
 
         if (isHelpOpen) {
           if (e.key === 'Escape') {
