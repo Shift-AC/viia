@@ -28,6 +28,11 @@ impl MediaUrl {
         &self.0
     }
 
+    /// Returns a string suitable for display, decoding percent-encoded characters if possible.
+    pub fn display_string(&self) -> std::borrow::Cow<'_, str> {
+        percent_encoding::percent_decode_str(self.as_str()).decode_utf8_lossy()
+    }
+
     pub fn to_url(&self) -> Result<Url, url::ParseError> {
         Url::parse(self.as_str())
     }
@@ -95,7 +100,7 @@ impl MediaUrl {
         url.path_segments()
             .and_then(|mut segs| segs.next_back())
             .filter(|s| !s.is_empty())
-            .map(|s| s.to_string())
+            .map(|s| percent_encoding::percent_decode_str(s).decode_utf8_lossy().to_string())
     }
 
     pub fn parent(&self) -> Option<Self> {

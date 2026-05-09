@@ -20,14 +20,14 @@ use std::time::{Duration, Instant};
 use tracing::{debug, error, warn};
 use tui_logger::{TuiLoggerWidget, TuiWidgetState};
 use viia_core::{
-    Animation, FrameCache, MediaUrl, SlideshowManager, TimingCommand, resolve_media_urls,
-    shell_index_to_zero_based, update_prefetch, zero_based_to_shell_index,
+    resolve_media_urls, shell_index_to_zero_based, update_prefetch,
+    zero_based_to_shell_index, Animation, FrameCache, MediaUrl, AnimationManager, TimingCommand,
 };
 
 fn display_source_name(source: &MediaUrl) -> String {
     source
         .file_name()
-        .unwrap_or_else(|| source.as_str().to_string())
+        .unwrap_or_else(|| source.display_string().into_owned())
 }
 
 fn match_file_names(
@@ -87,6 +87,18 @@ pub fn run_tui(inputs: Vec<String>, prefetch: usize) -> Result<(), Box<dyn std::
             animations.push(anim);
         }
     }
+
+    let target_source = if animations.is_empty() {
+        None
+    } else {
+        Some(animations[start_idx.min(animations.len().saturating_sub(1))].source.clone())
+    };
+    viia_core::sort_animations(&mut animations, &[viia_core::SortMode::NameNatural]);
+    let start_idx = if let Some(s) = target_source {
+        animations.iter().position(|a| a.source == s).unwrap_or(0)
+    } else {
+        0
+    };
 
     // Main loop
     let res = if animations.is_empty() {
@@ -171,7 +183,7 @@ fn run_loop(
         time_secs: None,
         infinite: true,
     }];
-    let mut manager = SlideshowManager::new(default_cmd.clone());
+    let mut manager = AnimationManager::new(default_cmd.clone());
     if let Err(e) = manager.load_animation(&animations[current_idx]) {
         animations[current_idx].state = viia_core::AnimationState::Error(e);
     }
@@ -207,7 +219,7 @@ fn run_loop(
                     current_idx = (current_idx + 1) % animations.len();
                     tracing::info!(
                         "Auto-advancing to next image: {}",
-                        animations[current_idx].source.as_str()
+                        animations[current_idx].source.display_string()
                     );
                     update_prefetch(&mut animations, current_idx, prefetch);
                     if let Err(e) = manager.load_animation(&animations[current_idx]) {
@@ -318,10 +330,7 @@ fn run_loop(
                             " [{}/{}] {}{} | Press 'q' to quit, Space to pause, Right next, Left prev, ':' command ",
                             current_idx + 1,
                             animations.len(),
-                            animations[current_idx]
-                                .source
-                                .file_name()
-                                .unwrap_or_else(|| "unknown".to_string()),
+                            display_source_name(&animations[current_idx].source),
                             error_msg
                         ))
                         .style(Style::default().bg(Color::DarkGray).fg(Color::White))
@@ -359,7 +368,7 @@ fn run_loop(
                                     current_idx = (current_idx + 1) % animations.len();
                                     tracing::info!(
                                         "Manually navigated to next image: {}",
-                                        animations[current_idx].source.as_str()
+                                        animations[current_idx].source.display_string()
                                     );
                                     update_prefetch(&mut animations, current_idx, prefetch);
                                     if let Err(e) = manager.load_animation(&animations[current_idx])
@@ -377,7 +386,7 @@ fn run_loop(
                                     }
                                     tracing::info!(
                                         "Manually navigated to previous image: {}",
-                                        animations[current_idx].source.as_str()
+                                        animations[current_idx].source.display_string()
                                     );
                                     update_prefetch(&mut animations, current_idx, prefetch);
                                     if let Err(e) = manager.load_animation(&animations[current_idx])
@@ -411,9 +420,9 @@ fn run_loop(
                                                         current_idx =
                                                             (current_idx + 1) % animations.len();
                                                         tracing::info!(
-                                                            "Navigated to next image: {}",
-                                                            animations[current_idx].source.as_str()
-                                                        );
+                                    "Navigated to next image: {}",
+                                    animations[current_idx].source.display_string()
+                                );
                                                         update_prefetch(
                                                             &mut animations,
                                                             current_idx,
@@ -435,7 +444,7 @@ fn run_loop(
                                                         }
                                                         tracing::info!(
                                                             "Navigated to previous image: {}",
-                                                            animations[current_idx].source.as_str()
+                                                            animations[current_idx].source.display_string()
                                                         );
                                                         update_prefetch(
                                                             &mut animations,
@@ -487,9 +496,48 @@ fn run_loop(
                                                         tracing::info!(
                                                             "Current image [{}]: {}",
                                                             zero_based_to_shell_index(current_idx),
-                                                            animations[current_idx].source.as_str()
+                                                            animations[current_idx].source.display_string()
                                                         );
                                                     }
+                                                    viia_core::RuntimeAction::Sort { modes } => {
+                                                        if animations.is_empty() {
+                                                            continue;
+                                                        }
+                                                        let current_source = animations[current_idx].source.clone();
+                                                        viia_core::sort_animations(&mut animations, &modes);
+                                                        if let Some(new_idx) = animations.iter().position(|a| a.source == current_source) {
+                                                            current_idx = new_idx;
+                                                        } else {
+                                                            current_idx = 0;
+                                                        }
+                                                        update_prefetch(&mut animations, current_idx, prefetch);
+                                                        last_rendered_frame = usize::MAX;
+                                                        force_clear = true;
+                                                    }
+                                                    viia_core::RuntimeAction::Info { info_type } => match info_type {
+                                                        viia_core::InfoType::Animation => {
+                                                            if let (Some(spec), Some(start)) =
+                                                                (&manager.spec, &manager.start_source)
+                                                            {
+                                                                tracing::info!(
+                                                                    "Animation Spec: {} | Started From: {} | Images Played: {}",
+                                                                    spec,
+                                                                    start,
+                                                                    manager.get_images_played()
+                                                                );
+                                                            } else {
+                                                                tracing::info!("No animation is currently active.");
+                                                            }
+                                                        }
+                                                        viia_core::InfoType::FileList => {
+                                                            tracing::info!("Current Image Index: {}", zero_based_to_shell_index(current_idx));
+                                                            tracing::info!("Current Image Source: {}", animations[current_idx].source.display_string());
+                                                            tracing::info!("File List:");
+                                                            for (idx, anim) in animations.iter().enumerate() {
+                                                                tracing::info!("  [{}] {}", zero_based_to_shell_index(idx), anim.source.display_string());
+                                                            }
+                                                        }
+                                                    },
                                                     viia_core::RuntimeAction::Match { pattern } => {
                                                         match match_file_names(
                                                             &animations,
@@ -541,7 +589,7 @@ fn run_loop(
                                                         force_clear = true;
                                                         last_rendered_frame = usize::MAX; // force redraw
                                                     }
-                                                    viia_core::RuntimeAction::StartSlideshow {
+                                                    viia_core::RuntimeAction::StartAnimation {
                                                         cmd,
                                                     } => {
                                                         let spec = cmd.join(" ");
@@ -556,7 +604,7 @@ fn run_loop(
                                                             .as_deref()
                                                             .unwrap_or(std::path::Path::new(""));
                                                         if let Ok(cmds) =
-                                                            viia_core::parse_slideshow_spec(
+                                                            viia_core::parse_animation_spec(
                                                                 &spec, parent_dir,
                                                             )
                                                         {
@@ -565,6 +613,7 @@ fn run_loop(
                                                                     .set_commands(
                                                                         cmds,
                                                                         &animations[current_idx],
+                                                                        spec.clone()
                                                                     )
                                                                 {
                                                                     animations[current_idx].state = viia_core::AnimationState::Error(e);
@@ -573,7 +622,7 @@ fn run_loop(
                                                             }
                                                         } else {
                                                             error!(
-                                                                "Failed to parse slideshow spec: {}",
+                                                                "Failed to parse animation spec: {}",
                                                                 spec
                                                             );
                                                         }
@@ -612,11 +661,23 @@ fn run_loop(
                                                                                 "No images found from provided targets"
                                                                             );
                                                                         } else {
+                                                                            let target_source = if new_animations.is_empty() {
+                                                                                None
+                                                                            } else {
+                                                                                Some(new_animations[start_idx.min(new_animations.len().saturating_sub(1))].source.clone())
+                                                                            };
+                                                                            viia_core::sort_animations(&mut new_animations, &[viia_core::SortMode::NameNatural]);
+                                                                            let start_idx = if let Some(s) = target_source {
+                                                                                new_animations.iter().position(|a| a.source == s).unwrap_or(0)
+                                                                            } else {
+                                                                                0
+                                                                            };
+                                                                            
                                                                             animations =
                                                                                 new_animations;
                                                                             current_idx = start_idx.min(animations.len().saturating_sub(1));
                                                                             // FrameCache isn't easily cleared here without re-creating it, but we can just let old items expire.
-                                                                            manager = SlideshowManager::new(default_cmd.clone());
+                                                                            manager = AnimationManager::new(default_cmd.clone());
                                                                             if let Err(e) = manager
                                                                                 .load_animation(
                                                                                 &animations

@@ -62,15 +62,15 @@ The `viia` program treats each image file as an animation (static images are sim
     | `l`       | Show the previous image |
     | `m [pattern]` | Print file names in the current file list that match a regex pattern |
     | `o [targets...]` | Open a new set of files, directories, or URLs |
-    | `p`       | Pause/Resume the current slideshow |
+    | `p`       | Pause/Resume the current animation |
     | `q`       | Quit the program |
     | `r`       | Show the next image |
-    | `s [cmd]` | Start a slideshow with a command string (see [Slideshow specification format](#slideshow-specification-format)) |
+    | `a [cmd]` | Start an animation with a command string (see [Animation specification format](#animation-specification-format)) |
     | `z [mode]`| Set the zoom mode. Options: `fit` (scale to fit window), `shrink` (only shrink if too large), or a fixed scale percentage (e.g., `150`) |
 
-    In its implementation, `viia` designed its TUI and GUI to be as *dumb* as possible: they do minimal processing other than handling the UI. The real display work is typically done by the internal shell. The UI simply take user operations, generate command lines for the internal shell to execute, and renders the outputs on the UI. Therefore, *no matter which user interface is used*, you may use the runtime commands to control the behavior of `viia`.
+    In its implementation, `viia` designed its TUI and GUI to be as *dumb* as possible: they do minimal processing other than handling the UI. The real display work is typically done by the internal shell. The UI simply take user operations, generate command lines for the internal shell to execute, and renders the outputs on the UI. Therefore, *no matter which user interface is used*, you may use the same runtime commands to control the behavior of `viia`.
     
-## Slideshow specification format
+## Animation specification format
 
 The core feature of `viia` that makes it unique is its ability to define a slideshow with customizable commands. The commands are written in plain text, as specified below:
 

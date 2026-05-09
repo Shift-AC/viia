@@ -13,16 +13,93 @@ pub mod state_machine;
 pub use cache::{CacheKey, FrameCache};
 pub use image_loader::{Animation, AnimationState, EngineError, Frame};
 pub use internal_shell::{
-    InternalCommand, RuntimeAction, ZoomMode, shell_index_to_zero_based, zero_based_to_shell_index,
+    InternalCommand, RuntimeAction, SortMode, ZoomMode, InfoType, shell_index_to_zero_based, zero_based_to_shell_index,
 };
 pub use media_url::MediaUrl;
 pub use resizer::resize_image;
-pub use slideshow_parser::{ParserError, TimingCommand, parse_slideshow_spec};
+pub use slideshow_parser::{parse_animation_spec, ParserError, TimingCommand};
 pub use source_resolver::resolve_media_urls;
-pub use state_machine::{PlaybackState, SlideshowManager};
+pub use state_machine::{AnimationManager, PlaybackState};
 
 use std::fs;
 use std::path::PathBuf;
+use std::time::SystemTime;
+
+pub fn sort_animations(animations: &mut [Animation], modes: &[SortMode]) {
+    animations.sort_by(|a, b| {
+        for mode in modes {
+            let cmp = match mode {
+                SortMode::Name => {
+                    let name_a = a.source.file_name().unwrap_or_default().to_ascii_lowercase();
+                    let name_b = b.source.file_name().unwrap_or_default().to_ascii_lowercase();
+                    name_a.cmp(&name_b)
+                }
+                SortMode::NameDesc => {
+                    let name_a = a.source.file_name().unwrap_or_default().to_ascii_lowercase();
+                    let name_b = b.source.file_name().unwrap_or_default().to_ascii_lowercase();
+                    name_b.cmp(&name_a)
+                }
+                SortMode::NameNatural => {
+                    let name_a = a.source.file_name().unwrap_or_default();
+                    let name_b = b.source.file_name().unwrap_or_default();
+                    natord::compare_ignore_case(&name_a, &name_b)
+                }
+                SortMode::NameNaturalDesc => {
+                    let name_a = a.source.file_name().unwrap_or_default();
+                    let name_b = b.source.file_name().unwrap_or_default();
+                    natord::compare_ignore_case(&name_b, &name_a)
+                }
+                SortMode::Size => {
+                    let size_a = get_file_size(&a.source);
+                    let size_b = get_file_size(&b.source);
+                    size_a.cmp(&size_b)
+                }
+                SortMode::SizeDesc => {
+                    let size_a = get_file_size(&a.source);
+                    let size_b = get_file_size(&b.source);
+                    size_b.cmp(&size_a)
+                }
+                SortMode::Modified => {
+                    let mod_a = get_file_modified(&a.source);
+                    let mod_b = get_file_modified(&b.source);
+                    mod_a.cmp(&mod_b)
+                }
+                SortMode::ModifiedDesc => {
+                    let mod_a = get_file_modified(&a.source);
+                    let mod_b = get_file_modified(&b.source);
+                    mod_b.cmp(&mod_a)
+                }
+            };
+            if cmp != std::cmp::Ordering::Equal {
+                return cmp;
+            }
+        }
+        
+        // Final fallback: natural name sorting
+        let name_a = a.source.file_name().unwrap_or_default();
+        let name_b = b.source.file_name().unwrap_or_default();
+        natord::compare_ignore_case(&name_a, &name_b)
+    });
+}
+
+fn get_file_size(url: &MediaUrl) -> u64 {
+    if let Some(path) = url.to_file_path()
+        && let Ok(meta) = fs::metadata(path)
+    {
+        return meta.len();
+    }
+    0
+}
+
+fn get_file_modified(url: &MediaUrl) -> SystemTime {
+    if let Some(path) = url.to_file_path()
+        && let Ok(meta) = fs::metadata(path)
+        && let Ok(time) = meta.modified()
+    {
+        return time;
+    }
+    SystemTime::UNIX_EPOCH
+}
 
 pub fn collect_image_paths(paths: Vec<PathBuf>) -> (Vec<PathBuf>, usize) {
     let mut resolved_paths = Vec::new();
@@ -55,6 +132,12 @@ pub fn collect_image_paths(paths: Vec<PathBuf>) -> (Vec<PathBuf>, usize) {
                     }
                 }
             }
+            siblings.sort_by(|a, b| {
+                natord::compare_ignore_case(
+                    &a.file_name().unwrap_or_default().to_string_lossy(),
+                    &b.file_name().unwrap_or_default().to_string_lossy(),
+                )
+            });
             if let Some(idx) = siblings.iter().position(|p| p == target_file) {
                 start_idx = idx;
             }
@@ -85,6 +168,12 @@ pub fn collect_image_paths(paths: Vec<PathBuf>) -> (Vec<PathBuf>, usize) {
                             }
                         }
                     }
+                    dir_paths.sort_by(|a, b| {
+                        natord::compare_ignore_case(
+                            &a.file_name().unwrap_or_default().to_string_lossy(),
+                            &b.file_name().unwrap_or_default().to_string_lossy(),
+                        )
+                    });
                     resolved_paths.extend(dir_paths);
                 }
             } else {
@@ -179,10 +268,10 @@ mod tests {
 
         let (paths, idx) = collect_image_paths(vec![p2.clone()]);
         assert_eq!(paths.len(), 2);
-        // We removed sorting, so the order is OS dependent. Just check it contains both.
-        assert!(paths.contains(&p1));
-        assert!(paths.contains(&p2));
-        assert_eq!(paths[idx], p2);
+        // The list is sorted by file name lexicographically
+        assert_eq!(paths[0], p1);
+        assert_eq!(paths[1], p2);
+        assert_eq!(idx, 1);
     }
 
     #[test]

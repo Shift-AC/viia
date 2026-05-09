@@ -60,7 +60,7 @@
         bottom: 10px;
         left: 50%;
         transform: translateX(-50%);
-        background: rgba(0,0,0,0.7);
+        background: rgba(0,0,0,0.25);
         border-radius: 8px;
         pointer-events: auto;
         z-index: 2001;
@@ -141,7 +141,7 @@
       }
       .slider-fill {
         width: 100%;
-        height: 70%;
+        height: 25%;
         background: rgba(255, 255, 255, 0.8);
       }
       #overlay-content {
@@ -304,8 +304,8 @@
         fill: currentColor;
       }
 
-      /* URL Input Modal */
-      #url-modal-bg {
+      /* URL & Sort Input Modal */
+      #url-modal-bg, #sort-modal-bg {
         position: fixed;
         top: 0; left: 0; right: 0; bottom: 0;
         background: rgba(0, 0, 0, 0.6);
@@ -316,7 +316,7 @@
         justify-content: center;
         align-items: center;
       }
-      #url-modal {
+      #url-modal, #sort-modal {
         background: rgba(30, 30, 30, 0.95);
         border: 1px solid #444;
         border-radius: 8px;
@@ -326,7 +326,7 @@
         box-shadow: 0 10px 40px rgba(0, 0, 0, 0.7);
         overflow: hidden;
       }
-      #url-header {
+      #url-header, #sort-header {
         padding: 16px 24px;
         border-bottom: 1px solid #444;
         display: flex;
@@ -334,13 +334,13 @@
         align-items: center;
         background: rgba(0, 0, 0, 0.3);
       }
-      #url-header h2 {
+      #url-header h2, #sort-header h2 {
         margin: 0;
         font-size: 1.1rem;
         font-weight: normal;
         color: #eee;
       }
-      #btn-close-url {
+      #btn-close-url, #btn-close-sort {
         background: none;
         border: none;
         color: #aaa;
@@ -350,10 +350,10 @@
         padding: 0;
         transition: color 0.2s;
       }
-      #btn-close-url:hover {
+      #btn-close-url:hover, #btn-close-sort:hover {
         color: white;
       }
-      #url-content {
+      #url-content, #sort-content {
         padding: 24px;
         display: flex;
         flex-direction: column;
@@ -388,6 +388,115 @@
         transition: background 0.2s;
       }
       #btn-submit-url:hover {
+        background: #0098ff;
+      }
+      
+      /* Sort Options */
+      #sort-content {
+        padding: 24px;
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+        max-height: 400px;
+        overflow-y: auto;
+      }
+      .sort-item {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .sort-number {
+        width: 24px;
+        color: #888;
+        font-size: 0.9rem;
+        text-align: right;
+        flex-shrink: 0;
+      }
+      .sort-select {
+        flex: 1;
+        background: rgba(0,0,0,0.5);
+        border: 1px solid #555;
+        color: white;
+        padding: 8px 12px;
+        border-radius: 4px;
+        font-size: 0.95rem;
+        outline: none;
+        cursor: pointer;
+      }
+      .sort-select:focus {
+        border-color: #888;
+      }
+      .sort-select option {
+        background: #222;
+        color: white;
+      }
+      .btn-remove-sort {
+        background: rgba(255, 255, 255, 0.1);
+        border: 1px solid transparent;
+        color: #ccc;
+        width: 32px;
+        height: 32px;
+        border-radius: 4px;
+        cursor: pointer;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        transition: all 0.2s;
+        flex-shrink: 0;
+      }
+      .btn-remove-sort:hover {
+        background: rgba(255, 50, 50, 0.2);
+        border-color: rgba(255, 50, 50, 0.4);
+        color: white;
+      }
+      .btn-remove-sort svg {
+        width: 16px;
+        height: 16px;
+        fill: currentColor;
+      }
+      .sort-actions {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-top: 8px;
+        padding-top: 16px;
+        border-top: 1px solid #444;
+      }
+      .btn-add-sort {
+        background: rgba(255, 255, 255, 0.1);
+        border: 1px dashed rgba(255, 255, 255, 0.3);
+        color: #ddd;
+        padding: 8px 16px;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 0.9rem;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        transition: all 0.2s;
+      }
+      .btn-add-sort:hover {
+        background: rgba(255, 255, 255, 0.2);
+        border-color: rgba(255, 255, 255, 0.5);
+        color: white;
+      }
+      .btn-add-sort svg {
+        width: 14px;
+        height: 14px;
+        fill: currentColor;
+      }
+      .btn-apply-sort {
+        background: #007acc;
+        border: none;
+        color: white;
+        padding: 8px 24px;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 0.95rem;
+        font-weight: 500;
+        transition: background 0.2s;
+      }
+      .btn-apply-sort:hover {
         background: #0098ff;
       }
 
@@ -667,6 +776,15 @@
         <button class="control-btn" id="btn-open-url" title="Open URL">
           <svg viewBox="0 0 24 24"><path d="M3.9 12c0-1.71 1.39-3.1 3.1-3.1h4V7H7c-2.76 0-5 2.24-5 5s2.24 5 5 5h4v-1.9H7c-1.71 0-3.1-1.39-3.1-3.1zM8 13h8v-2H8v2zm9-6h-4v1.9h4c1.71 0 3.1 1.39 3.1 3.1s-1.39 3.1-3.1 3.1h-4V17h4c2.76 0 5-2.24 5-5s-2.24-5-5-5z"/></svg>
         </button>
+        <button class="control-btn" id="btn-sort" title="Sort (s)">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" style="fill: none;" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M11 5h10"></path>
+            <path d="M11 9h7"></path>
+            <path d="M11 13h4"></path>
+            <path d="M3 17l3 3 3-3"></path>
+            <path d="M6 18V4"></path>
+          </svg>
+        </button>
         <button class="control-btn" id="btn-cmd" title="Command Prompt (:)">
           <svg viewBox="0 0 24 24"><path d="M9 4l-2 2 6 6-6 6 2 2 8-8-8-8zm4 14h8v2h-8v-2z"/></svg>
         </button>
@@ -705,6 +823,41 @@
         <div id="url-content">
           <textarea id="url-input" placeholder="sftp://user:password@host/path/to/image.jpg&#10;file:///C:/path/to/local/image.png"></textarea>
           <button id="btn-submit-url">Open</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Sort Modal Overlay -->
+    <div id="sort-modal-bg">
+      <div id="sort-modal">
+        <div id="sort-header">
+          <h2>Sort Images</h2>
+          <button id="btn-close-sort" title="Close (Esc)">&times;</button>
+        </div>
+        <div id="sort-content">
+          <div id="sort-list" style="display: flex; flex-direction: column; gap: 12px;">
+            <div class="sort-item">
+              <span class="sort-number">1.</span>
+              <select class="sort-select">
+                <option value="name">Name (A-Z)</option>
+                <option value="name-desc">Name (Z-A)</option>
+                <option value="name-natural">Name Natural (A-Z)</option>
+                <option value="name-natural-desc">Name Natural (Z-A)</option>
+                <option value="size">Size (Smallest First)</option>
+                <option value="size-desc">Size (Largest First)</option>
+                <option value="modified">Modified (Oldest First)</option>
+                <option value="modified-desc">Modified (Newest First)</option>
+              </select>
+              <div style="width: 32px;"></div>
+            </div>
+          </div>
+          <div class="sort-actions">
+            <button id="btn-add-sort" class="btn-add-sort">
+              <svg viewBox="0 0 24 24"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
+              Add criterion
+            </button>
+            <button id="btn-apply-sort" class="btn-apply-sort">Apply Sort</button>
+          </div>
         </div>
       </div>
     </div>
@@ -748,6 +901,10 @@
                       <div class="help-item">
                           <span class="help-key">Esc</span>
                           <span class="help-desc">Close prompt / help</span>
+                      </div>
+                      <div class="help-item">
+                          <span class="help-key">F11</span>
+                          <span class="help-desc">Toggle fullscreen</span>
                       </div>
                       <div class="help-item">
                           <span class="help-key">
@@ -808,6 +965,7 @@
     <script>
       const { invoke } = window.__TAURI__.core;
       const { listen } = window.__TAURI__.event;
+      const { getCurrentWindow } = window.__TAURI__.window;
 
       async function log(msg) {
         console.log(msg);
@@ -843,6 +1001,13 @@
       const btnCloseUrl = document.getElementById('btn-close-url');
       const btnSubmitUrl = document.getElementById('btn-submit-url');
       const urlInput = document.getElementById('url-input');
+
+      const btnSort = document.getElementById('btn-sort');
+      const sortModalBg = document.getElementById('sort-modal-bg');
+      const btnCloseSort = document.getElementById('btn-close-sort');
+      const btnAddSort = document.getElementById('btn-add-sort');
+      const btnApplySort = document.getElementById('btn-apply-sort');
+      const sortList = document.getElementById('sort-list');
 
       let currentScale = 1.0;
       let currentMode = 'shrink'; // Track current zoom mode ('fit', 'shrink', or fixed number)
@@ -1024,8 +1189,8 @@
       let isDraggingTransparency = false;
       let overlayDragOffsetX, overlayDragOffsetY;
       let startTransparencyY = 0;
-      let startOpacity = 0.7;
-      let currentOverlayOpacity = 0.7;
+      let startOpacity = 0.25;
+      let currentOverlayOpacity = 0.25;
       const dragBar = document.getElementById('overlay-drag-bar');
       const transparencyDragBar = document.getElementById('transparency-drag-bar');
 
@@ -1393,6 +1558,14 @@
           return;
         }
 
+        if (sortModalBg.style.display === 'flex') {
+          if (e.key === 'Escape') {
+            closeSortModal();
+            e.preventDefault();
+          }
+          return;
+        }
+
         if (isHelpOpen) {
           if (e.key === 'Escape') {
             closeHelp();
@@ -1456,6 +1629,12 @@
           commandInput.focus();
           return;
         }
+        else if (e.key === 'F11') {
+          e.preventDefault();
+          const win = getCurrentWindow();
+          win.isFullscreen().then(isFull => win.setFullscreen(!isFull));
+          return;
+        }
 
         if (cmd) {
           e.preventDefault();
@@ -1493,7 +1672,7 @@
         }
       });
 
-      document.getElementById('btn-slideshow').addEventListener('click', () => invoke('send_command', { cmd: 's L1T3' }));
+      document.getElementById('btn-slideshow').addEventListener('click', () => invoke('send_command', { cmd: 'a L1T3' }));
 
       btnOpenFile.addEventListener('click', async () => {
         try {
@@ -1538,6 +1717,66 @@
         }
       });
 
+      btnSort.addEventListener('click', () => {
+        sortModalBg.style.display = 'flex';
+      });
+
+      function closeSortModal() {
+        sortModalBg.style.display = 'none';
+      }
+
+      btnCloseSort.addEventListener('click', closeSortModal);
+
+      sortModalBg.addEventListener('click', (e) => {
+        if (e.target === sortModalBg) closeSortModal();
+      });
+
+      function updateSortNumbers() {
+        const items = sortList.querySelectorAll('.sort-item');
+        items.forEach((item, index) => {
+          item.querySelector('.sort-number').textContent = `${index + 1}.`;
+        });
+      }
+
+      btnAddSort.addEventListener('click', () => {
+        const count = sortList.children.length + 1;
+        const item = document.createElement('div');
+        item.className = 'sort-item';
+        
+        item.innerHTML = `
+          <span class="sort-number">${count}.</span>
+          <select class="sort-select">
+            <option value="name">Name (A-Z)</option>
+            <option value="name-desc">Name (Z-A)</option>
+            <option value="name-natural">Name Natural (A-Z)</option>
+            <option value="name-natural-desc">Name Natural (Z-A)</option>
+            <option value="size">Size (Smallest First)</option>
+            <option value="size-desc">Size (Largest First)</option>
+            <option value="modified">Modified (Oldest First)</option>
+            <option value="modified-desc">Modified (Newest First)</option>
+          </select>
+          <button class="btn-remove-sort" title="Remove criterion">
+            <svg viewBox="0 0 24 24"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12 19 6.41z"/></svg>
+          </button>
+        `;
+        
+        item.querySelector('.btn-remove-sort').addEventListener('click', () => {
+          item.remove();
+          updateSortNumbers();
+        });
+        
+        sortList.appendChild(item);
+      });
+
+      btnApplySort.addEventListener('click', async () => {
+        const selects = sortList.querySelectorAll('.sort-select');
+        const modes = Array.from(selects).map(s => s.value);
+        if (modes.length > 0) {
+          await invoke('send_command', { cmd: `s ${modes.join(' ')}` });
+        }
+        closeSortModal();
+      });
+
       document.getElementById('btn-cmd').addEventListener('click', () => {
         commandPrompt.style.display = 'block';
         commandInput.focus();
@@ -1568,7 +1807,6 @@
         }
       });
 
-      const { getCurrentWindow } = window.__TAURI__.window;
       document.getElementById('btn-minimize').addEventListener('click', () => getCurrentWindow().minimize());
       document.getElementById('btn-maximize').addEventListener('click', () => getCurrentWindow().toggleMaximize());
       document.getElementById('btn-close').addEventListener('click', () => invoke('send_command', { cmd: 'q' }));

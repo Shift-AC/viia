@@ -130,8 +130,8 @@ impl TimingCommand {
     }
 }
 
-/// Parses a full slideshow specification string, including file imports and comma-separated lists.
-pub fn parse_slideshow_spec(
+/// Parses a full animation specification string, including file imports and comma-separated lists.
+pub fn parse_animation_spec(
     spec: &str,
     base_dir: &std::path::Path,
 ) -> Result<Vec<TimingCommand>, ParserError> {
@@ -155,7 +155,7 @@ pub fn parse_slideshow_spec(
             })?;
 
             // Recursively parse the file content
-            let file_commands = parse_slideshow_spec(&content, base_dir)?;
+            let file_commands = parse_animation_spec(&content, base_dir)?;
             commands.extend(file_commands);
         } else {
             // Parse single command
@@ -277,11 +277,11 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_slideshow_spec() {
+    fn test_parse_animation_spec() {
         let dir = tempfile::tempdir().unwrap();
 
         let spec = "L1T2,  L2T3,L3 "; // spaces should be ignored
-        let cmds = parse_slideshow_spec(spec, dir.path()).unwrap();
+        let cmds = parse_animation_spec(spec, dir.path()).unwrap();
 
         assert_eq!(cmds.len(), 3);
         assert_eq!(
@@ -311,7 +311,7 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_slideshow_spec_with_file() {
+    fn test_parse_animation_spec_with_file() {
         let dir = tempfile::tempdir().unwrap();
         let file_path = dir.path().join("spec.txt");
 
@@ -322,7 +322,7 @@ mod tests {
             "L1, @{}, L2",
             file_path.file_name().unwrap().to_str().unwrap()
         );
-        let cmds = parse_slideshow_spec(&spec, dir.path()).unwrap();
+        let cmds = parse_animation_spec(&spec, dir.path()).unwrap();
 
         assert_eq!(cmds.len(), 4);
         assert_eq!(

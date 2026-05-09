@@ -10,8 +10,8 @@ pub enum PlaybackState {
     Paused,
 }
 
-pub struct SlideshowManager {
-    /// The parsed timing commands for the slideshow. Used cyclically.
+pub struct AnimationManager {
+    /// The parsed timing commands for the animation. Used cyclically.
     pub commands: Vec<TimingCommand>,
     /// Index of the current command
     current_command_idx: usize,
@@ -29,9 +29,12 @@ pub struct SlideshowManager {
 
     active_decoder: Option<LazyDecoder>,
     loops_completed: u32,
+
+    pub start_source: Option<String>,
+    pub spec: Option<String>,
 }
 
-impl SlideshowManager {
+impl AnimationManager {
     pub fn new(commands: Vec<TimingCommand>) -> Self {
         Self {
             commands,
@@ -45,6 +48,8 @@ impl SlideshowManager {
             frame_elapsed: Duration::ZERO,
             active_decoder: None,
             loops_completed: 0,
+            start_source: None,
+            spec: None,
         }
     }
 
@@ -53,11 +58,14 @@ impl SlideshowManager {
         &mut self,
         commands: Vec<TimingCommand>,
         current_animation: &Animation,
+        spec: String,
     ) -> Result<(), String> {
         info!("Setting new commands: {:?}", commands);
         self.commands = commands;
         self.current_command_idx = 0;
         self.state = PlaybackState::Playing;
+        self.start_source = Some(current_animation.source.as_str().to_string());
+        self.spec = Some(spec);
         self.load_animation(current_animation)
     }
 
@@ -117,7 +125,7 @@ impl SlideshowManager {
         }
 
         let cmd = self.get_current_command().clone();
-        info!("Loaded animation: {}", animation.source.as_str());
+        info!("Loaded animation: {}", animation.source.display_string());
         info!("Current command: {:?}", cmd);
 
         if self.state == PlaybackState::Playing {
@@ -169,6 +177,11 @@ impl SlideshowManager {
                 info!("Playback resumed");
             }
         }
+    }
+
+    /// Gets the number of images played in the current animation sequence
+    pub fn get_images_played(&self) -> usize {
+        self.current_command_idx
     }
 
     fn update_elapsed(&mut self) {
@@ -412,7 +425,7 @@ mod tests {
             time_secs: None,
             infinite: false,
         }];
-        let mut manager = SlideshowManager::new(cmds);
+        let mut manager = AnimationManager::new(cmds);
 
         manager.load_animation(&anim).unwrap();
 

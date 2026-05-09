@@ -153,7 +153,7 @@ fn list_directory_with_runner(
     };
 
     if matches!(order, ListingOrder::LexicographicFallback) {
-        entries.sort_by_key(|x| x.to_ascii_lowercase());
+        entries.sort_by(|a, b| natord::compare_ignore_case(a, b));
         warn!(
             "Falling back to lexicographic order for SFTP listing at {}",
             url.as_str()

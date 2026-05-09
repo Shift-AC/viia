@@ -29,6 +29,24 @@ impl FromStr for ZoomMode {
     }
 }
 
+#[derive(Clone, Debug, PartialEq, clap::ValueEnum)]
+pub enum SortMode {
+    Name,
+    NameDesc,
+    NameNatural,
+    NameNaturalDesc,
+    Size,
+    SizeDesc,
+    Modified,
+    ModifiedDesc,
+}
+
+#[derive(Clone, Debug, PartialEq, clap::ValueEnum)]
+pub enum InfoType {
+    Animation,
+    FileList,
+}
+
 /// The internal command processor for viia's UI/backend communication.
 /// It uses a simple shell-like syntax to issue commands during runtime.
 #[derive(Parser, Debug, PartialEq)]
@@ -78,11 +96,25 @@ pub enum RuntimeAction {
     #[command(name = "r")]
     ShowNext,
 
-    /// Start a slideshow with a command string
-    #[command(name = "s")]
-    StartSlideshow {
+    /// Start an animation with a command string
+    #[command(name = "a")]
+    StartAnimation {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         cmd: Vec<String>,
+    },
+
+    /// Show information about the current state of the program
+    #[command(name = "i")]
+    Info {
+        #[arg(required = true, value_enum)]
+        info_type: InfoType,
+    },
+
+    /// Sort the current file list
+    #[command(name = "s")]
+    Sort {
+        #[arg(required = true, value_enum)]
+        modes: Vec<SortMode>,
     },
 
     /// Set the zoom mode. Options: 'fit' (resize to fit window), 'shrink' (shrink if too large), or a fixed scale percentage (e.g., '150').
@@ -220,13 +252,32 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_slideshow() {
-        let cmd = InternalCommand::parse_line("s L2T3, @file.txt").unwrap();
-        if let RuntimeAction::StartSlideshow { cmd: args } = cmd.action {
+    fn test_parse_animation() {
+        let cmd = InternalCommand::parse_line("a L2T3, @file.txt").unwrap();
+        if let RuntimeAction::StartAnimation { cmd: args } = cmd.action {
             assert_eq!(args.join(" "), "L2T3, @file.txt");
         } else {
-            panic!("Expected StartSlideshow");
+            panic!("Expected StartAnimation");
         }
+    }
+
+    #[test]
+    fn test_parse_info() {
+        let cmd = InternalCommand::parse_line("i animation").unwrap();
+        assert_eq!(
+            cmd.action,
+            RuntimeAction::Info {
+                info_type: InfoType::Animation
+            }
+        );
+
+        let cmd = InternalCommand::parse_line("i file-list").unwrap();
+        assert_eq!(
+            cmd.action,
+            RuntimeAction::Info {
+                info_type: InfoType::FileList
+            }
+        );
     }
 
     #[test]

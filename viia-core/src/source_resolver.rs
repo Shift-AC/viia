@@ -46,7 +46,12 @@ pub fn resolve_media_urls(inputs: Vec<MediaUrl>) -> Result<(Vec<MediaUrl>, usize
                         .collect::<Vec<_>>();
 
                     if matches!(listing.order, ListingOrder::LexicographicFallback) {
-                        children.sort_by_key(|x| x.file_name().unwrap_or_default().to_ascii_lowercase());
+                        children.sort_by(|a, b| {
+                            natord::compare_ignore_case(
+                                &a.file_name().unwrap_or_default(),
+                                &b.file_name().unwrap_or_default(),
+                            )
+                        });
                     }
 
                     if !children.is_empty() {
@@ -106,7 +111,12 @@ fn resolve_single_sftp_file(input: &MediaUrl) -> Result<(Vec<MediaUrl>, usize), 
             .collect::<Vec<_>>();
 
         if matches!(listing.order, ListingOrder::LexicographicFallback) {
-            children.sort_by_key(|x| x.file_name().unwrap_or_default().to_ascii_lowercase());
+            children.sort_by(|a, b| {
+                natord::compare_ignore_case(
+                    &a.file_name().unwrap_or_default(),
+                    &b.file_name().unwrap_or_default(),
+                )
+            });
         }
 
         if !children.is_empty() {
@@ -132,7 +142,12 @@ fn resolve_single_sftp_file(input: &MediaUrl) -> Result<(Vec<MediaUrl>, usize), 
                 .collect::<Vec<_>>();
 
             if matches!(listing.order, ListingOrder::LexicographicFallback) {
-                siblings.sort_by_key(|x| x.file_name().unwrap_or_default().to_ascii_lowercase());
+                siblings.sort_by(|a, b| {
+                    natord::compare_ignore_case(
+                        &a.file_name().unwrap_or_default(),
+                        &b.file_name().unwrap_or_default(),
+                    )
+                });
             }
 
             if let Some(idx) = siblings
@@ -186,6 +201,13 @@ fn local_image_siblings(parent: &Path, target: &Path) -> Result<(Vec<MediaUrl>, 
         siblings.push(MediaUrl::from_abs_path(&path)?);
     }
 
+    siblings.sort_by(|a, b| {
+        natord::compare_ignore_case(
+            &a.file_name().unwrap_or_default(),
+            &b.file_name().unwrap_or_default(),
+        )
+    });
+
     let start_idx = siblings
         .iter()
         .position(|candidate| candidate == &target_url)
@@ -213,6 +235,14 @@ fn local_directory_children(path: PathBuf) -> Result<Vec<MediaUrl>, String> {
             urls.push(MediaUrl::from_abs_path(&entry_path)?);
         }
     }
+    
+    urls.sort_by(|a, b| {
+        natord::compare_ignore_case(
+            &a.file_name().unwrap_or_default(),
+            &b.file_name().unwrap_or_default(),
+        )
+    });
+    
     Ok(urls)
 }
 
@@ -254,5 +284,9 @@ mod tests {
         let (resolved, idx) = resolve_media_urls(vec![target.clone()]).unwrap();
         assert_eq!(resolved.len(), 2);
         assert_eq!(resolved[idx], target);
+        // Ensure lexicographic sorting
+        assert_eq!(resolved[0].file_name().unwrap(), "a.jpg");
+        assert_eq!(resolved[1].file_name().unwrap(), "b.png");
+        assert_eq!(idx, 1);
     }
 }
