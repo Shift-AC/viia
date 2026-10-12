@@ -214,7 +214,7 @@ impl AnimationManager {
         }
 
         if let Some(t) = cmd.time_secs {
-            if self.elapsed_time >= Duration::from_secs(t as u64) {
+            if self.elapsed_time >= Duration::from_secs_f32(t) {
                 ready_time = true;
             }
         } else {
@@ -468,6 +468,26 @@ mod tests {
 
         // Tick 400ms (Total 1000ms): Should finish and advance
         assert!(manager.tick(Duration::from_millis(400), &anim).unwrap());
+    }
+
+    #[test]
+    fn fractional_time_requirement_is_not_truncated() {
+        let anim = create_test_animation();
+
+        let cmds = vec![TimingCommand {
+            loops: Some(1), // 1 loop of 500ms, but T1.5 should keep it visible longer.
+            time_secs: Some(1.5),
+            infinite: false,
+        }];
+        let mut manager = AnimationManager::new(cmds);
+
+        manager.load_animation(&anim).unwrap();
+
+        assert!(!manager.tick(Duration::from_millis(500), &anim).unwrap());
+        assert!(!manager.tick(Duration::from_millis(499), &anim).unwrap());
+        assert!(!manager.tick(Duration::from_millis(1), &anim).unwrap());
+
+        assert!(manager.tick(Duration::from_millis(500), &anim).unwrap());
     }
 
     #[test]

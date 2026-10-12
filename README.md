@@ -35,7 +35,7 @@ The `viia` program treats each image file as an animation (static images are sim
 
 - Image list
 
-    `viia` accepts a list of paths to image files or directories as its command line arguments. If a single file path is provided, `viia` will display that file first and then load all other image files in its parent directory (in lexicographical order). If directory paths are provided, `viia` will automatically expand them to include all files inside them (in lexicographical order). If multiple files are provided, `viia` will follow the order they are provided.
+    `viia` accepts a list of paths to image files or directories as its command line arguments. If a single file path is provided, `viia` will display that file first and then load all other image files in its parent directory. If directory paths are provided, `viia` will automatically expand them to include supported image files inside them. The loaded file list is sorted in natural-name order while preserving the first image that corresponds to the first provided path as the startup image.
 
     No matter how the image list is constructed, `viia` will display the first image that corresponds to the first provided path at startup.
 
@@ -46,9 +46,10 @@ The `viia` program treats each image file as an animation (static images are sim
     | Option | Description |
     |---------|-------------|
     | `-d`, `--dimension` | Window dimension ([width]x[height]), 2/3 of the screen size if not specified |
-    | `--ui` | The user interface to use, `headless`, `terminal` or `gui` (default is `terminal`) |
+    | `--ui` | The user interface to use, `headless`, `terminal` or `gui` (default is `gui` when built with the GUI feature) |
+    | `--prefetch` | Number of images to prefetch into memory (default is `5`) |
 
-    Here the `headless` mode is just like any normal terminal programs. It would not display any graphical output, but would still perform any other operations and generate log for debugging; the `terminal` mode is a terminal image viewer. It accepts user inputs through the terminal and renders images using **sixel** graphics. The `gui` mode launches a `Tauri` frontend for you to operate on.
+    Here the `headless` mode is just like any normal terminal programs. It would not display any graphical output, but would still perform any other operations and generate log for debugging; the `terminal` mode is a terminal image viewer. It accepts user inputs through the terminal and renders images using **sixel** graphics. The `gui` mode launches a `Tauri` frontend for you to operate on. If `viia` is built without the GUI feature, only `headless` and `terminal` are available.
 
 - Runtime commands (internal shell)
 
@@ -57,18 +58,22 @@ The `viia` program treats each image file as an animation (static images are sim
     | Command | Description |
     |---------|-------------|
     | `d [dim]` | Set window dimension (e.g., `d 800x600`). Omit the value to use screen size |
-    | `g [index]`| Go to an image by file-list index. Omit index to show the current image |
-    | `h`, `help` | Print help information |
+    | `g [index]`| Go to an image by one-based file-list index. Omit index to show the current image |
+    | `h`, `help [command]` | Print help information, optionally for a specific runtime command |
+    | `i <animation\|file-list>` | Show information about the active animation or current file list |
     | `l`       | Show the previous image |
-    | `m [pattern]` | Print file names in the current file list that match a regex pattern |
+    | `m <pattern>` | Print file names in the current file list that match a regex pattern |
     | `o [targets...]` | Open a new set of files, directories, or URLs |
     | `p`       | Pause/Resume the current animation |
     | `q`       | Quit the program |
     | `r`       | Show the next image |
-    | `a [cmd]` | Start an animation with a command string (see [Animation specification format](#animation-specification-format)) |
+    | `a <cmd...>` | Start an animation with a command string (see [Animation specification format](#animation-specification-format)) |
+    | `s <modes...>` | Sort the current file list. Modes: `name`, `name-desc`, `name-natural`, `name-natural-desc`, `size`, `size-desc`, `modified`, `modified-desc` |
     | `z [mode]`| Set the zoom mode. Options: `fit` (scale to fit window), `shrink` (only shrink if too large), or a fixed scale percentage (e.g., `150`) |
 
-    In its implementation, `viia` designed its TUI and GUI to be as *dumb* as possible: they do minimal processing other than handling the UI. The real display work is typically done by the internal shell. The UI simply take user operations, generate command lines for the internal shell to execute, and renders the outputs on the UI. Therefore, *no matter which user interface is used*, you may use the same runtime commands to control the behavior of `viia`.
+    Runtime commands are parsed with shell-like quoting rules. Quote paths, URLs, or regex patterns that contain spaces or shell metacharacters, for example `o "C:\path with spaces\image.png"` or `m "^cat.*\.png$"`.
+
+    In its implementation, `viia` designed its TUI and GUI to be as *dumb* as possible: they do minimal processing other than handling the UI. The real display work is typically done by the internal shell. The UI simply take user operations, generate command lines for the internal shell to execute, and renders the outputs on the UI. Therefore, the runtime command format is shared across UI modes, though individual modes may display output differently or handle some UI-native actions locally.
     
 ## Animation specification format
 
@@ -78,7 +83,7 @@ The core feature of `viia` that makes it unique is its ability to define a slide
 
     __Syntax__: `L[loops]T[time_in_seconds]` or `INF`
 
-    Here `L[loops]` specifies that the image should be played for `loops` times. `viia` treats static images as animated images with only one frame that lasts 100 ms. Thus `L[loops]` applies for both static and animated images. `T[time_in_seconds]`, on the other hand, specifies the _minimum_ time to play the image: after expiration of the time period, `viia` waits for a loop to end before advancing to the next image. You could provide either `L` or `T` limit for an image, if both are provided, `viia` picks the one that lasts longer.
+    Here `L[loops]` specifies that the image should be played for `loops` times. `loops` must be an integer. `viia` treats static images as animated images with only one frame that lasts 100 ms. Thus `L[loops]` applies for both static and animated images. `T[time_in_seconds]`, on the other hand, specifies the _minimum_ time to play the image and accepts fractional seconds such as `T1.5`: after expiration of the time period, `viia` waits for a loop to end before advancing to the next image. You could provide either `L` or `T` limit for an image, if both are provided, `viia` picks the one that lasts longer.
     
     Alternatively, you can specify `INF` to loop the image eternally.
 

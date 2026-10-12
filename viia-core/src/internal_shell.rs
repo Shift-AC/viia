@@ -259,6 +259,13 @@ mod tests {
         } else {
             panic!("Expected StartAnimation");
         }
+
+        let cmd = InternalCommand::parse_line("a L1T1.5").unwrap();
+        if let RuntimeAction::StartAnimation { cmd: args } = cmd.action {
+            assert_eq!(args.join(" "), "L1T1.5");
+        } else {
+            panic!("Expected StartAnimation");
+        }
     }
 
     #[test]
