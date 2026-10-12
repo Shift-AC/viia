@@ -20,8 +20,8 @@ use std::time::{Duration, Instant};
 use tracing::{debug, error, warn};
 use tui_logger::{TuiLoggerWidget, TuiWidgetState};
 use viia_core::{
-    resolve_media_urls, shell_index_to_zero_based, update_prefetch,
-    zero_based_to_shell_index, Animation, FrameCache, MediaUrl, AnimationManager, TimingCommand,
+    Animation, AnimationManager, FrameCache, MediaUrl, TimingCommand, resolve_media_urls,
+    shell_index_to_zero_based, update_prefetch, zero_based_to_shell_index,
 };
 
 fn display_source_name(source: &MediaUrl) -> String {
@@ -91,7 +91,11 @@ pub fn run_tui(inputs: Vec<String>, prefetch: usize) -> Result<(), Box<dyn std::
     let target_source = if animations.is_empty() {
         None
     } else {
-        Some(animations[start_idx.min(animations.len().saturating_sub(1))].source.clone())
+        Some(
+            animations[start_idx.min(animations.len().saturating_sub(1))]
+                .source
+                .clone(),
+        )
     };
     viia_core::sort_animations(&mut animations, &[viia_core::SortMode::NameNatural]);
     let start_idx = if let Some(s) = target_source {
@@ -420,9 +424,11 @@ fn run_loop(
                                                         current_idx =
                                                             (current_idx + 1) % animations.len();
                                                         tracing::info!(
-                                    "Navigated to next image: {}",
-                                    animations[current_idx].source.display_string()
-                                );
+                                                            "Navigated to next image: {}",
+                                                            animations[current_idx]
+                                                                .source
+                                                                .display_string()
+                                                        );
                                                         update_prefetch(
                                                             &mut animations,
                                                             current_idx,
@@ -444,7 +450,9 @@ fn run_loop(
                                                         }
                                                         tracing::info!(
                                                             "Navigated to previous image: {}",
-                                                            animations[current_idx].source.display_string()
+                                                            animations[current_idx]
+                                                                .source
+                                                                .display_string()
                                                         );
                                                         update_prefetch(
                                                             &mut animations,
@@ -496,29 +504,46 @@ fn run_loop(
                                                         tracing::info!(
                                                             "Current image [{}]: {}",
                                                             zero_based_to_shell_index(current_idx),
-                                                            animations[current_idx].source.display_string()
+                                                            animations[current_idx]
+                                                                .source
+                                                                .display_string()
                                                         );
                                                     }
                                                     viia_core::RuntimeAction::Sort { modes } => {
                                                         if animations.is_empty() {
                                                             continue;
                                                         }
-                                                        let current_source = animations[current_idx].source.clone();
-                                                        viia_core::sort_animations(&mut animations, &modes);
-                                                        if let Some(new_idx) = animations.iter().position(|a| a.source == current_source) {
+                                                        let current_source =
+                                                            animations[current_idx].source.clone();
+                                                        viia_core::sort_animations(
+                                                            &mut animations,
+                                                            &modes,
+                                                        );
+                                                        if let Some(new_idx) =
+                                                            animations.iter().position(|a| {
+                                                                a.source == current_source
+                                                            })
+                                                        {
                                                             current_idx = new_idx;
                                                         } else {
                                                             current_idx = 0;
                                                         }
-                                                        update_prefetch(&mut animations, current_idx, prefetch);
+                                                        update_prefetch(
+                                                            &mut animations,
+                                                            current_idx,
+                                                            prefetch,
+                                                        );
                                                         last_rendered_frame = usize::MAX;
                                                         force_clear = true;
                                                     }
-                                                    viia_core::RuntimeAction::Info { info_type } => match info_type {
+                                                    viia_core::RuntimeAction::Info {
+                                                        info_type,
+                                                    } => match info_type {
                                                         viia_core::InfoType::Animation => {
-                                                            if let (Some(spec), Some(start)) =
-                                                                (&manager.spec, &manager.start_source)
-                                                            {
+                                                            if let (Some(spec), Some(start)) = (
+                                                                &manager.spec,
+                                                                &manager.start_source,
+                                                            ) {
                                                                 tracing::info!(
                                                                     "Animation Spec: {} | Started From: {} | Images Played: {}",
                                                                     spec,
@@ -526,15 +551,33 @@ fn run_loop(
                                                                     manager.get_images_played()
                                                                 );
                                                             } else {
-                                                                tracing::info!("No animation is currently active.");
+                                                                tracing::info!(
+                                                                    "No animation is currently active."
+                                                                );
                                                             }
                                                         }
                                                         viia_core::InfoType::FileList => {
-                                                            tracing::info!("Current Image Index: {}", zero_based_to_shell_index(current_idx));
-                                                            tracing::info!("Current Image Source: {}", animations[current_idx].source.display_string());
+                                                            tracing::info!(
+                                                                "Current Image Index: {}",
+                                                                zero_based_to_shell_index(
+                                                                    current_idx
+                                                                )
+                                                            );
+                                                            tracing::info!(
+                                                                "Current Image Source: {}",
+                                                                animations[current_idx]
+                                                                    .source
+                                                                    .display_string()
+                                                            );
                                                             tracing::info!("File List:");
-                                                            for (idx, anim) in animations.iter().enumerate() {
-                                                                tracing::info!("  [{}] {}", zero_based_to_shell_index(idx), anim.source.display_string());
+                                                            for (idx, anim) in
+                                                                animations.iter().enumerate()
+                                                            {
+                                                                tracing::info!(
+                                                                    "  [{}] {}",
+                                                                    zero_based_to_shell_index(idx),
+                                                                    anim.source.display_string()
+                                                                );
                                                             }
                                                         }
                                                     },
@@ -613,7 +656,7 @@ fn run_loop(
                                                                     .set_commands(
                                                                         cmds,
                                                                         &animations[current_idx],
-                                                                        spec.clone()
+                                                                        spec.clone(),
                                                                     )
                                                                 {
                                                                     animations[current_idx].state = viia_core::AnimationState::Error(e);
@@ -661,18 +704,24 @@ fn run_loop(
                                                                                 "No images found from provided targets"
                                                                             );
                                                                         } else {
-                                                                            let target_source = if new_animations.is_empty() {
-                                                                                None
-                                                                            } else {
-                                                                                Some(new_animations[start_idx.min(new_animations.len().saturating_sub(1))].source.clone())
-                                                                            };
+                                                                            let target_source =
+                                                                                if new_animations
+                                                                                    .is_empty()
+                                                                                {
+                                                                                    None
+                                                                                } else {
+                                                                                    Some(new_animations[start_idx.min(new_animations.len().saturating_sub(1))].source.clone())
+                                                                                };
                                                                             viia_core::sort_animations(&mut new_animations, &[viia_core::SortMode::NameNatural]);
-                                                                            let start_idx = if let Some(s) = target_source {
-                                                                                new_animations.iter().position(|a| a.source == s).unwrap_or(0)
-                                                                            } else {
-                                                                                0
-                                                                            };
-                                                                            
+                                                                            let start_idx =
+                                                                                if let Some(s) =
+                                                                                    target_source
+                                                                                {
+                                                                                    new_animations.iter().position(|a| a.source == s).unwrap_or(0)
+                                                                                } else {
+                                                                                    0
+                                                                                };
+
                                                                             animations =
                                                                                 new_animations;
                                                                             current_idx = start_idx.min(animations.len().saturating_sub(1));

@@ -34,9 +34,9 @@ async fn open_file_dialog(app: AppHandle, state: State<'_, AppState>) -> Result<
 use tokio::sync::mpsc;
 use tracing::{debug, error, info, warn};
 use viia_core::{
-    parse_animation_spec, resolve_media_urls, shell_index_to_zero_based, update_prefetch,
-    zero_based_to_shell_index, Animation, InternalCommand, MediaUrl, PlaybackState, RuntimeAction,
-    AnimationManager, TimingCommand,
+    Animation, AnimationManager, InternalCommand, MediaUrl, PlaybackState, RuntimeAction,
+    TimingCommand, parse_animation_spec, resolve_media_urls, shell_index_to_zero_based,
+    update_prefetch, zero_based_to_shell_index,
 };
 
 #[derive(Clone, serde::Serialize)]
@@ -82,8 +82,11 @@ struct AppState {
 }
 
 struct FrameState {
-    buffer: Mutex<Vec<u8>>,
-    content_type: Mutex<String>,
+    buffer: Mutex<Arc<Vec<u8>>>,
+}
+
+fn publish_frame_buffer(frame_state: &FrameState, buffer: Vec<u8>) {
+    *frame_state.buffer.lock().unwrap() = Arc::new(buffer);
 }
 
 #[tauri::command]
@@ -184,7 +187,11 @@ fn engine_loop(
     let target_source = if animations.is_empty() {
         None
     } else {
-        Some(animations[start_idx.min(animations.len().saturating_sub(1))].source.clone())
+        Some(
+            animations[start_idx.min(animations.len().saturating_sub(1))]
+                .source
+                .clone(),
+        )
     };
     viia_core::sort_animations(&mut animations, &[viia_core::SortMode::NameNatural]);
     let start_idx = if let Some(s) = target_source {
@@ -385,11 +392,21 @@ fn engine_loop(
                                 }
                             }
                             viia_core::InfoType::FileList => {
-                                info!("Current Image Index: {}", zero_based_to_shell_index(current_idx));
-                                info!("Current Image Source: {}", animations[current_idx].source.display_string());
+                                info!(
+                                    "Current Image Index: {}",
+                                    zero_based_to_shell_index(current_idx)
+                                );
+                                info!(
+                                    "Current Image Source: {}",
+                                    animations[current_idx].source.display_string()
+                                );
                                 info!("File List:");
                                 for (idx, anim) in animations.iter().enumerate() {
-                                    info!("  [{}] {}", zero_based_to_shell_index(idx), anim.source.display_string());
+                                    info!(
+                                        "  [{}] {}",
+                                        zero_based_to_shell_index(idx),
+                                        anim.source.display_string()
+                                    );
                                 }
                             }
                         },
@@ -440,8 +457,11 @@ fn engine_loop(
                                 && !cmds.is_empty()
                             {
                                 info!("Parsed {} timing commands for animation", cmds.len());
-                                if let Err(e) = manager.set_commands(cmds, &animations[current_idx], spec.clone())
-                                {
+                                if let Err(e) = manager.set_commands(
+                                    cmds,
+                                    &animations[current_idx],
+                                    spec.clone(),
+                                ) {
                                     animations[current_idx].state =
                                         viia_core::AnimationState::Error(e);
                                 }
@@ -468,20 +488,32 @@ fn engine_loop(
                                                 }
                                             }
 
-                                                let target_source = if new_animations.is_empty() {
-                                                    None
-                                                } else {
-                                                    Some(new_animations[start_idx.min(new_animations.len().saturating_sub(1))].source.clone())
-                                                };
-                                                viia_core::sort_animations(&mut new_animations, &[viia_core::SortMode::NameNatural]);
-                                                let start_idx = if let Some(s) = target_source {
-                                                    new_animations.iter().position(|a| a.source == s).unwrap_or(0)
-                                                } else {
-                                                    0
-                                                };
+                                            let target_source = if new_animations.is_empty() {
+                                                None
+                                            } else {
+                                                Some(
+                                                    new_animations[start_idx.min(
+                                                        new_animations.len().saturating_sub(1),
+                                                    )]
+                                                    .source
+                                                    .clone(),
+                                                )
+                                            };
+                                            viia_core::sort_animations(
+                                                &mut new_animations,
+                                                &[viia_core::SortMode::NameNatural],
+                                            );
+                                            let start_idx = if let Some(s) = target_source {
+                                                new_animations
+                                                    .iter()
+                                                    .position(|a| a.source == s)
+                                                    .unwrap_or(0)
+                                            } else {
+                                                0
+                                            };
 
-                                                animations = new_animations;
-                                                if animations.is_empty() {
+                                            animations = new_animations;
+                                            if animations.is_empty() {
                                                 warn!(
                                                     "No valid animations found, emitting empty status"
                                                 );
@@ -636,11 +668,7 @@ fn engine_loop(
                             // Serve raw RGBA bytes for static sftp or malformed files
                             let width = frame.data.width();
                             let height = frame.data.height();
-                            let buffer = frame.data.as_raw().clone();
-
-                            *frame_state.buffer.lock().unwrap() = buffer;
-                            *frame_state.content_type.lock().unwrap() =
-                                "application/octet-stream".to_string();
+                            publish_frame_buffer(&frame_state, frame.data.as_raw().clone());
 
                             // Encode parameters for caching
                             let path_b64 =
@@ -686,11 +714,7 @@ fn engine_loop(
                         // Serve raw RGBA bytes for animations
                         let width = frame.data.width();
                         let height = frame.data.height();
-                        let buffer = frame.data.as_raw().clone();
-
-                        *frame_state.buffer.lock().unwrap() = buffer;
-                        *frame_state.content_type.lock().unwrap() =
-                            "application/octet-stream".to_string();
+                        publish_frame_buffer(&frame_state, frame.data.as_raw().clone());
 
                         // Encode parameters for caching
                         let path_str = animations[current_idx].source.as_str().to_string();
@@ -739,10 +763,7 @@ fn engine_loop(
                     let path_str = animations[current_idx].source.as_str().to_string();
 
                     // Use a 1x1 transparent raw RGBA buffer instead of base64
-                    let buffer = vec![0u8, 0, 0, 0];
-                    *frame_state.buffer.lock().unwrap() = buffer;
-                    *frame_state.content_type.lock().unwrap() =
-                        "application/octet-stream".to_string();
+                    publish_frame_buffer(&frame_state, vec![0u8, 0, 0, 0]);
 
                     let path_b64 = general_purpose::URL_SAFE_NO_PAD.encode(path_str.as_bytes());
 
@@ -863,23 +884,24 @@ pub fn run_gui(
     let tx_state = tx.clone();
 
     let frame_state = Arc::new(FrameState {
-        buffer: Mutex::new(Vec::new()),
-        content_type: Mutex::new("image/png".to_string()),
+        buffer: Mutex::new(Arc::new(Vec::new())),
     });
     let frame_state_protocol = frame_state.clone();
 
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .register_uri_scheme_protocol("viia", move |_app, _request| {
-            let buffer = frame_state_protocol.buffer.lock().unwrap().clone();
-            let content_type = frame_state_protocol.content_type.lock().unwrap().clone();
+            let buffer = {
+                let guard = frame_state_protocol.buffer.lock().unwrap();
+                Arc::clone(&guard)
+            };
 
             Response::builder()
                 .status(StatusCode::OK)
-                .header("Content-Type", content_type)
+                .header("Content-Type", "application/octet-stream")
                 .header("Access-Control-Allow-Origin", "*")
                 .header("Cache-Control", "public, max-age=31536000")
-                .body(buffer)
+                .body((*buffer).clone())
                 .unwrap_or_else(|_| {
                     Response::builder()
                         .status(StatusCode::INTERNAL_SERVER_ERROR)

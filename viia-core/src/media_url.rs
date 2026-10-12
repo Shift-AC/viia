@@ -100,22 +100,26 @@ impl MediaUrl {
         url.path_segments()
             .and_then(|mut segs| segs.next_back())
             .filter(|s| !s.is_empty())
-            .map(|s| percent_encoding::percent_decode_str(s).decode_utf8_lossy().to_string())
+            .map(|s| {
+                percent_encoding::percent_decode_str(s)
+                    .decode_utf8_lossy()
+                    .to_string()
+            })
     }
 
     pub fn parent(&self) -> Option<Self> {
         let mut url = self.to_url().ok()?;
-        
+
         let path = url.path().to_string();
         if path == "/" || path == "//" || path.is_empty() {
             return None;
         }
-        
+
         let mut path_trimmed = path.as_str();
         if path_trimmed.ends_with('/') {
             path_trimmed = &path_trimmed[..path_trimmed.len() - 1];
         }
-        
+
         let last_slash = path_trimmed.rfind('/');
         if let Some(idx) = last_slash {
             let new_path = &path_trimmed[..=idx]; // include the slash

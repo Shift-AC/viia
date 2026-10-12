@@ -35,7 +35,10 @@ pub fn resolve_media_urls(inputs: Vec<MediaUrl>) -> Result<(Vec<MediaUrl>, usize
             }
             "sftp" => {
                 let file_name_opt = input.file_name();
-                let looks_like_file = file_name_opt.as_deref().map(is_supported_image_name).unwrap_or(false);
+                let looks_like_file = file_name_opt
+                    .as_deref()
+                    .map(is_supported_image_name)
+                    .unwrap_or(false);
 
                 if !looks_like_file && let Ok(listing) = sftp_transport::list_directory(&input) {
                     let mut children = listing
@@ -100,7 +103,10 @@ fn resolve_single_file_url(input: &MediaUrl) -> Result<(Vec<MediaUrl>, usize), S
 
 fn resolve_single_sftp_file(input: &MediaUrl) -> Result<(Vec<MediaUrl>, usize), String> {
     let file_name_opt = input.file_name();
-    let looks_like_file = file_name_opt.as_deref().map(is_supported_image_name).unwrap_or(false);
+    let looks_like_file = file_name_opt
+        .as_deref()
+        .map(is_supported_image_name)
+        .unwrap_or(false);
 
     if !looks_like_file && let Ok(listing) = sftp_transport::list_directory(input) {
         let mut children = listing
@@ -122,15 +128,18 @@ fn resolve_single_sftp_file(input: &MediaUrl) -> Result<(Vec<MediaUrl>, usize), 
         if !children.is_empty() {
             return Ok((children, 0));
         } else if file_name_opt.is_none() {
-            return Err(format!("No supported images found in SFTP directory: {}", input.as_str()));
+            return Err(format!(
+                "No supported images found in SFTP directory: {}",
+                input.as_str()
+            ));
         }
     }
 
     let parent = input
         .parent()
         .ok_or_else(|| format!("SFTP URL has no parent directory: {}", input.as_str()))?;
-    let file_name = file_name_opt
-        .ok_or_else(|| format!("SFTP URL has no file name: {}", input.as_str()))?;
+    let file_name =
+        file_name_opt.ok_or_else(|| format!("SFTP URL has no file name: {}", input.as_str()))?;
 
     match sftp_transport::list_directory(&parent) {
         Ok(listing) => {
@@ -235,14 +244,14 @@ fn local_directory_children(path: PathBuf) -> Result<Vec<MediaUrl>, String> {
             urls.push(MediaUrl::from_abs_path(&entry_path)?);
         }
     }
-    
+
     urls.sort_by(|a, b| {
         natord::compare_ignore_case(
             &a.file_name().unwrap_or_default(),
             &b.file_name().unwrap_or_default(),
         )
     });
-    
+
     Ok(urls)
 }
 

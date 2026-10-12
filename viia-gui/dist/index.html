@@ -978,6 +978,10 @@
 
       const viewer = document.getElementById('viewer');
       const viewerCanvas = document.getElementById('viewer-canvas');
+      const viewerCanvasCtx = viewerCanvas.getContext('2d', {
+        alpha: true,
+        desynchronized: true
+      });
       let activeViewer = viewer;
       const overlay = document.getElementById('overlay');
       const statusMsg = document.getElementById('status-msg');
@@ -2013,8 +2017,7 @@
             fetch(url).then(r => r.arrayBuffer()).then(buffer => {
                 const arr = new Uint8ClampedArray(buffer);
                 const imageData = new ImageData(arr, w, h);
-                const ctx = viewerCanvas.getContext('2d');
-                ctx.putImageData(imageData, 0, 0);
+                viewerCanvasCtx.putImageData(imageData, 0, 0);
             }).catch(e => console.error("Fetch raw frame failed:", e));
             
             viewerCanvas.style.display = 'block';

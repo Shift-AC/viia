@@ -4,6 +4,8 @@ use crate::{Animation, AnimationState, Frame};
 use std::time::{Duration, Instant};
 use tracing::{info, warn};
 
+const MAX_ANIMATED_FRAME_LAG: Duration = Duration::from_millis(16);
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PlaybackState {
     Playing,
@@ -273,71 +275,73 @@ impl AnimationManager {
                 first_frame,
             } = &animation.state
             {
-                // Keep consuming frames as long as we are overdue
-                while self.frame_elapsed >= current_frame_dur {
-                    self.frame_elapsed -= current_frame_dur;
+                // Decode at most one animated frame per tick. Some WebP files are expensive to
+                // composite; catching up by decoding many overdue frames in one tick can freeze the UI.
+                self.frame_elapsed -= current_frame_dur;
+                if self.frame_elapsed > MAX_ANIMATED_FRAME_LAG {
+                    self.frame_elapsed = MAX_ANIMATED_FRAME_LAG;
+                }
 
-                    let mut reached_end = false;
-                    let mut tick_err = None;
+                let mut reached_end = false;
+                let mut tick_err = None;
 
-                    if let Some(decoder) = &mut self.active_decoder {
-                        match decoder.next() {
-                            Some(Ok(image_frame)) => {
-                                let (num, denom) = image_frame.delay().numer_denom_ms();
-                                let duration = if denom == 0 {
-                                    Duration::from_millis(100)
-                                } else {
-                                    Duration::from_millis((num / denom) as u64)
-                                };
-                                self.current_frame = Some(Frame {
-                                    data: image_frame.into_buffer(),
-                                    duration,
-                                });
-                                self.current_frame_idx += 1;
-                            }
-                            Some(Err(e)) => {
-                                tick_err = Some(e.to_string());
-                            }
-                            None => {
-                                reached_end = true;
-                            }
+                if let Some(decoder) = &mut self.active_decoder {
+                    match decoder.next() {
+                        Some(Ok(image_frame)) => {
+                            let (num, denom) = image_frame.delay().numer_denom_ms();
+                            let duration = if denom == 0 {
+                                Duration::from_millis(100)
+                            } else {
+                                Duration::from_millis((num / denom) as u64)
+                            };
+                            self.current_frame = Some(Frame {
+                                data: image_frame.into_buffer(),
+                                duration,
+                            });
+                            self.current_frame_idx += 1;
                         }
-                    } else {
-                        reached_end = true;
+                        Some(Err(e)) => {
+                            tick_err = Some(e.to_string());
+                        }
+                        None => {
+                            reached_end = true;
+                        }
+                    }
+                } else {
+                    reached_end = true;
+                }
+
+                if let Some(err) = tick_err {
+                    if self.stored_state.is_none() {
+                        self.stored_state = Some(self.state);
+                    }
+                    self.state = PlaybackState::Paused;
+                    return Err(err);
+                }
+
+                if reached_end {
+                    self.loops_completed += 1;
+
+                    // Check if we should move to the next animation BEFORE restarting decoder
+                    if self.should_advance_animation() {
+                        self.current_command_idx += 1;
+                        return Ok(true);
                     }
 
-                    if let Some(err) = tick_err {
+                    // Restart decoder
+                    if let Ok(mut decoder) = LazyDecoder::new(bytes.clone(), *format) {
+                        // Immediately use the cached first frame instead of decoding it again
+                        self.current_frame = Some(first_frame.clone());
+                        self.current_frame_idx = 0;
+                        let _ = decoder.next(); // Advance iterator past the first frame
+
+                        self.active_decoder = Some(decoder);
+                    } else {
                         if self.stored_state.is_none() {
                             self.stored_state = Some(self.state);
                         }
                         self.state = PlaybackState::Paused;
-                        return Err(err);
-                    }
-
-                    if reached_end {
-                        self.loops_completed += 1;
-
-                        // Check if we should move to the next animation BEFORE restarting decoder
-                        if self.should_advance_animation() {
-                            self.current_command_idx += 1;
-                            return Ok(true);
-                        }
-
-                        // Restart decoder
-                        if let Ok(mut decoder) = LazyDecoder::new(bytes.clone(), *format) {
-                            // Immediately use the cached first frame instead of decoding it again
-                            self.current_frame = Some(first_frame.clone());
-                            self.current_frame_idx = 0;
-                            let _ = decoder.next(); // Advance iterator past the first frame
-
-                            self.active_decoder = Some(decoder);
-                        } else {
-                            if self.stored_state.is_none() {
-                                self.stored_state = Some(self.state);
-                            }
-                            self.state = PlaybackState::Paused;
-                            return Err("Failed to restart animation loop".to_string());
-                        }
+                        return Err("Failed to restart animation loop".to_string());
                     }
                 }
             } else if let AnimationState::Static { .. } = &animation.state {
@@ -395,7 +399,8 @@ impl AnimationManager {
 mod tests {
     use super::*;
     use crate::{Animation, AnimationState, Frame, MediaUrl};
-    use image::RgbaImage;
+    use image::{Delay, Frame as ImageFrame, RgbaImage};
+    use std::sync::Arc;
 
     // Helper to test iterator directly instead of building WebP bytes
     fn create_test_animation() -> Animation {
@@ -412,6 +417,32 @@ mod tests {
                     duration: Duration::from_millis(500),
                 },
                 format: image::ImageFormat::Png,
+            },
+        }
+    }
+
+    fn create_test_gif_animation() -> Animation {
+        let mut bytes = Vec::new();
+        {
+            let mut encoder = image::codecs::gif::GifEncoder::new(&mut bytes);
+            let frames = (0..3).map(|value| {
+                let mut image = RgbaImage::new(1, 1);
+                image.put_pixel(0, 0, image::Rgba([value, 0, 0, 255]));
+                ImageFrame::from_parts(image, 0, 0, Delay::from_numer_denom_ms(10, 1))
+            });
+            encoder.encode_frames(frames).unwrap();
+        }
+
+        Animation {
+            source: MediaUrl::parse_url("file:///test.gif").unwrap(),
+            format: image::ImageFormat::Gif,
+            state: AnimationState::Animated {
+                bytes: Arc::new(bytes),
+                format: image::ImageFormat::Gif,
+                first_frame: Frame {
+                    data: RgbaImage::new(1, 1),
+                    duration: Duration::from_millis(10),
+                },
             },
         }
     }
@@ -437,5 +468,23 @@ mod tests {
 
         // Tick 400ms (Total 1000ms): Should finish and advance
         assert!(manager.tick(Duration::from_millis(400), &anim).unwrap());
+    }
+
+    #[test]
+    fn animated_tick_decodes_at_most_one_overdue_frame() {
+        let anim = create_test_gif_animation();
+        let cmds = vec![TimingCommand {
+            loops: None,
+            time_secs: None,
+            infinite: true,
+        }];
+        let mut manager = AnimationManager::new(cmds);
+
+        manager.load_animation(&anim).unwrap();
+        assert_eq!(manager.current_frame_index(), 0);
+
+        assert!(!manager.tick(Duration::from_millis(100), &anim).unwrap());
+
+        assert_eq!(manager.current_frame_index(), 1);
     }
 }

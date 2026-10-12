@@ -415,7 +415,10 @@ mod tests {
         let url = Url::parse("sftp://example.com//absolute/path").unwrap();
         run_sftp_batch(&runner, &url, "").unwrap();
         let invocations = runner.invocations.lock().unwrap();
-        assert_eq!(invocations[0].1.last().unwrap(), "example.com:/absolute/path");
+        assert_eq!(
+            invocations[0].1.last().unwrap(),
+            "example.com:/absolute/path"
+        );
 
         // Test home relative path
         let runner = FakeRunner::with_output(Ok(CommandOutput {
@@ -426,6 +429,9 @@ mod tests {
         let url = Url::parse("sftp://example.com/~/relative/path").unwrap();
         run_sftp_batch(&runner, &url, "").unwrap();
         let invocations = runner.invocations.lock().unwrap();
-        assert_eq!(invocations[0].1.last().unwrap(), "example.com:relative/path");
+        assert_eq!(
+            invocations[0].1.last().unwrap(),
+            "example.com:relative/path"
+        );
     }
 }

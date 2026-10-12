@@ -13,11 +13,12 @@ pub mod state_machine;
 pub use cache::{CacheKey, FrameCache};
 pub use image_loader::{Animation, AnimationState, EngineError, Frame};
 pub use internal_shell::{
-    InternalCommand, RuntimeAction, SortMode, ZoomMode, InfoType, shell_index_to_zero_based, zero_based_to_shell_index,
+    InfoType, InternalCommand, RuntimeAction, SortMode, ZoomMode, shell_index_to_zero_based,
+    zero_based_to_shell_index,
 };
 pub use media_url::MediaUrl;
 pub use resizer::resize_image;
-pub use slideshow_parser::{parse_animation_spec, ParserError, TimingCommand};
+pub use slideshow_parser::{ParserError, TimingCommand, parse_animation_spec};
 pub use source_resolver::resolve_media_urls;
 pub use state_machine::{AnimationManager, PlaybackState};
 
@@ -30,13 +31,29 @@ pub fn sort_animations(animations: &mut [Animation], modes: &[SortMode]) {
         for mode in modes {
             let cmp = match mode {
                 SortMode::Name => {
-                    let name_a = a.source.file_name().unwrap_or_default().to_ascii_lowercase();
-                    let name_b = b.source.file_name().unwrap_or_default().to_ascii_lowercase();
+                    let name_a = a
+                        .source
+                        .file_name()
+                        .unwrap_or_default()
+                        .to_ascii_lowercase();
+                    let name_b = b
+                        .source
+                        .file_name()
+                        .unwrap_or_default()
+                        .to_ascii_lowercase();
                     name_a.cmp(&name_b)
                 }
                 SortMode::NameDesc => {
-                    let name_a = a.source.file_name().unwrap_or_default().to_ascii_lowercase();
-                    let name_b = b.source.file_name().unwrap_or_default().to_ascii_lowercase();
+                    let name_a = a
+                        .source
+                        .file_name()
+                        .unwrap_or_default()
+                        .to_ascii_lowercase();
+                    let name_b = b
+                        .source
+                        .file_name()
+                        .unwrap_or_default()
+                        .to_ascii_lowercase();
                     name_b.cmp(&name_a)
                 }
                 SortMode::NameNatural => {
@@ -74,7 +91,7 @@ pub fn sort_animations(animations: &mut [Animation], modes: &[SortMode]) {
                 return cmp;
             }
         }
-        
+
         // Final fallback: natural name sorting
         let name_a = a.source.file_name().unwrap_or_default();
         let name_b = b.source.file_name().unwrap_or_default();
