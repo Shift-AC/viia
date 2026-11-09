@@ -68,6 +68,16 @@
         flex-direction: column;
         overflow: hidden;
         -webkit-app-region: no-drag;
+        user-select: none;
+        -webkit-user-select: none;
+      }
+      input, textarea {
+        user-select: text;
+        -webkit-user-select: text;
+      }
+      input::selection, textarea::selection {
+        background-color: #555;
+        color: #fff;
       }
       #overlay-main {
         display: flex;
