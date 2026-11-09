@@ -15,6 +15,16 @@ image = { version = "0.25.10", features = ["gif", "jpeg", "png", "webp"] }
 clap = "4.6.0"
 regex = "1.12.3"
 tauri-plugin-dialog = "2.0.0"
+tauri-plugin-clipboard-manager = "2.0.0"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61.2", features = [
+    "Win32_Foundation",
+    "Win32_System_Com",
+    "Win32_System_Power",
+    "Win32_UI_Shell",
+    "Win32_UI_Shell_Common",
+] }
 
 [dev-dependencies]
 tempfile = "3.27.0"

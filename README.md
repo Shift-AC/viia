@@ -27,6 +27,8 @@ cargo build --release
 
 The `viia` project mainly provides two programs, `viia` and `viiaw`. `viia` is the main image viewer program that supports all the UI modes, while `viiaw` is a specific fork of `viia`'s GUI mode, which does not associate itself with a terminal upon startup. If you would use `viia` in your terminal (either use the TUI directly or start a GUI window) or need the debug messages, use the `viia` program. If you are GUI-native and expect something like other image viewer applications, use `viiaw`.
 
+Click the filename label in the GUI to copy the file name or reveal the selected image in Windows File Explorer. The label cannot be selected as text. Remote images support copying the file name; revealing them in File Explorer is disabled.
+
 ## Basic idea
 
 The `viia` program treats each image file as an animation (static images are simply animations with only one frame), and animations could be concatenated together to form a larger animation. In this definition, Display of every single image is just like playing a slideshow. `viia` constructs an image list according to the user input, applies parameters from either the user or some presets to control the timing of each image in each slideshow, and plays them accordingly.
@@ -72,6 +74,8 @@ The `viia` program treats each image file as an animation (static images are sim
     | `z [mode]`| Set the zoom mode. Options: `fit` (scale to fit window), `shrink` (only shrink if too large), or a fixed scale percentage (e.g., `150`) |
 
     Runtime commands are parsed with shell-like quoting rules. Quote paths, URLs, or regex patterns that contain spaces or shell metacharacters, for example `o "C:\path with spaces\image.png"` or `m "^cat.*\.png$"`.
+
+    On Windows, the GUI keeps the display and system awake while a custom animation started with `a` is playing, including slideshows of static images. Pausing, a playback error, or opening a new file list releases the request; the default image loop does not keep the display awake.
 
     In its implementation, `viia` designed its TUI and GUI to be as *dumb* as possible: they do minimal processing other than handling the UI. The real display work is typically done by the internal shell. The UI simply take user operations, generate command lines for the internal shell to execute, and renders the outputs on the UI. Therefore, the runtime command format is shared across UI modes, though individual modes may display output differently or handle some UI-native actions locally.
     

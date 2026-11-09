@@ -6,6 +6,16 @@ use tauri::http::{Response, StatusCode};
 use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_plugin_dialog::DialogExt;
 
+mod display_inhibitor;
+mod file_actions;
+
+#[tauri::command]
+fn reveal_in_file_explorer(source: String) -> Result<(), String> {
+    file_actions::reveal(&source).inspect_err(|error| {
+        warn!(%error, "Failed to reveal image in file explorer");
+    })
+}
+
 #[tauri::command]
 async fn open_file_dialog(app: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
     info!("open_file_dialog called from frontend");
@@ -63,6 +73,8 @@ struct StatusPayload {
     total: usize,
     display_text: String,
     playback_state: String,
+    file_name: Option<String>,
+    source_url: Option<String>,
 }
 
 #[derive(Clone, serde::Serialize)]
@@ -227,6 +239,8 @@ fn engine_loop(
                 total: 0,
                 display_text: "No images provided.".to_string(),
                 playback_state: "Paused".to_string(),
+                file_name: None,
+                source_url: None,
             },
         );
         if let Some(window) = app.get_webview_window("main") {
@@ -240,6 +254,8 @@ fn engine_loop(
     let mut last_rendered_frame = usize::MAX;
     let mut last_rendered_idx = usize::MAX;
     let mut last_rendered_had_frame = false;
+    // Windows execution-state requests belong to this dedicated playback thread.
+    let mut display_inhibitor = display_inhibitor::DisplayInhibitor::new();
 
     loop {
         let now = Instant::now();
@@ -526,6 +542,8 @@ fn engine_loop(
                                                         display_text: "No images provided."
                                                             .to_string(),
                                                         playback_state: "Paused".to_string(),
+                                                        file_name: None,
+                                                        source_url: None,
                                                     },
                                                 );
                                                 if let Some(window) = app.get_webview_window("main")
@@ -608,6 +626,11 @@ fn engine_loop(
                 }
             }
         }
+
+        display_inhibitor.update(display_inhibitor::should_keep_awake(
+            &manager,
+            animations.get(current_idx),
+        ));
 
         let frame_idx = manager.current_frame_index();
         let has_frame = manager.current_frame().is_some();
@@ -828,6 +851,8 @@ fn engine_loop(
                 let status_payload = StatusPayload {
                     current_index: zero_based_to_shell_index(current_idx),
                     total: animations.len(),
+                    file_name: Some(file_name.clone()),
+                    source_url: Some(animations[current_idx].source.as_str().to_string()),
                     display_text: if let viia_core::AnimationState::Error(err) =
                         &animations[current_idx].state
                     {
@@ -890,6 +915,7 @@ pub fn run_gui(
 
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_clipboard_manager::init())
         .register_uri_scheme_protocol("viia", move |_app, _request| {
             let buffer = {
                 let guard = frame_state_protocol.buffer.lock().unwrap();
@@ -914,7 +940,8 @@ pub fn run_gui(
             send_command,
             start_engine,
             log_to_terminal,
-            open_file_dialog
+            open_file_dialog,
+            reveal_in_file_explorer
         ])
         .setup(move |app| {
             info!("Tauri setup hook called, spawning engine loop thread");
