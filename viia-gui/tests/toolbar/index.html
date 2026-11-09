@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><title>viia toolbar regression tests</title></head>
+<body>
+  <p>Loading the production frontend with an isolated Tauri transport…</p>
+  <script>
+    (async () => {
+      const response = await fetch('../../dist/index.html');
+      if (!response.ok) throw new Error(`Frontend fetch failed: ${response.status}`);
+      let html = await response.text();
+      html = html.replace('<script>', '<script src="/viia-gui/tests/toolbar/bridge.js"><\/script><script>');
+      html = html.replace('</body>', '<script src="/viia-gui/tests/toolbar/tests.js"><\/script></body>');
+      document.open();
+      document.write(html);
+      document.close();
+    })().catch(error => document.body.textContent = String(error));
+  </script>
+</body>
+</html>

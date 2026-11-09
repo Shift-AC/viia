@@ -10,7 +10,7 @@
         padding: 0;
         background-color: transparent; /* Allow Tauri transparent window */
         color: white;
-        font-family: sans-serif;
+        font-family: "Segoe UI", system-ui, sans-serif;
       }
       body {
         /* Let body grow normally with content to generate natural window scrollbars */
@@ -60,7 +60,13 @@
         bottom: 10px;
         left: 50%;
         transform: translateX(-50%);
-        background: rgba(0,0,0,0.25);
+        width: max-content;
+        max-width: calc(100vw - 16px);
+        box-sizing: border-box;
+        background: rgba(18,18,18,0.83);
+        color: #f0f0f0;
+        border: 1px solid rgba(255,255,255,0.18);
+        box-shadow: 0 4px 20px rgba(0,0,0,0.32);
         border-radius: 8px;
         pointer-events: auto;
         z-index: 2001;
@@ -84,8 +90,14 @@
         flex-direction: column;
         flex-grow: 1;
       }
-      #overlay.animating {
-        transition: width 0.3s ease, height 0.3s ease, left 0.3s ease, top 0.3s ease, bottom 0.3s ease, transform 0.3s ease;
+      #overlay.full {
+        width: 536px;
+      }
+      #overlay.minimized {
+        width: 40px;
+      }
+      #overlay.minimized #overlay-body {
+        display: none;
       }
       #overlay-header {
         position: relative;
@@ -95,13 +107,15 @@
       }
       #overlay-drag-bar {
         width: 100%;
-        height: 16px;
-        background: rgba(255, 255, 255, 0.1);
+        /* Six pixels of layout height; the hit area also includes the empty space above the text. */
+        height: 12px;
+        margin-bottom: -6px;
+        position: relative;
+        z-index: 1;
         cursor: grab;
         display: flex;
         justify-content: center;
         align-items: center;
-        border-bottom: 1px solid rgba(255, 255, 255, 0.1);
       }
       #overlay-drag-bar:active {
         cursor: grabbing;
@@ -109,9 +123,18 @@
       #overlay-drag-bar::after {
         content: '';
         width: 40px;
-        height: 4px;
-        background: rgba(255, 255, 255, 0.3);
-        border-radius: 2px;
+        height: 3px;
+        background: rgba(255, 255, 255, 0.18);
+        /* Center in the visible gap above the status text, including row padding. */
+        transform: translateY(0.5px);
+        pointer-events: none;
+      }
+      #overlay.minimized #overlay-drag-bar::after {
+        transform: none;
+      }
+      #overlay.minimized #overlay-drag-bar {
+        height: 6px;
+        margin-bottom: 0;
       }
       #overlay-body {
         display: flex;
@@ -119,30 +142,20 @@
         width: 100%;
       }
       #transparency-drag-bar {
-        width: 14px;
-        background: rgba(255, 255, 255, 0.05);
+        width: 10px;
+        flex: none;
         cursor: ns-resize;
         display: flex;
         justify-content: center;
         align-items: center;
-        border-right: 1px solid rgba(255, 255, 255, 0.1);
-        transition: background 0.2s;
-        padding: 8px 0;
+        padding: 6px 3px;
         box-sizing: border-box;
-      }
-      #transparency-drag-bar:hover {
-        background: rgba(255, 255, 255, 0.15);
-      }
-      #transparency-drag-bar:active {
-        cursor: ns-resize;
-        background: rgba(255, 255, 255, 0.2);
       }
       .slider-track {
         width: 4px;
         height: 100%;
         min-height: 40px;
-        background: rgba(0, 0, 0, 0.5);
-        border-radius: 2px;
+        background: rgba(255, 255, 255, 0.12);
         position: relative;
         overflow: hidden;
         display: flex;
@@ -151,27 +164,64 @@
       }
       .slider-fill {
         width: 100%;
-        height: 25%;
+        height: 83%;
         background: rgba(255, 255, 255, 0.8);
       }
       #overlay-content {
         display: flex;
         flex-direction: column;
-        align-items: center;
-        gap: 8px;
-        padding: 8px 16px 12px;
-        /* Ensure content displays nicely during width transition */
+        flex: 0 1 auto;
+        min-width: 0;
         white-space: nowrap;
       }
+      #overlay.full #overlay-content {
+        flex: 1;
+      }
       #status-container {
-        font-size: 14px;
+        font-size: 13px;
         white-space: nowrap;
         display: flex;
         align-items: center;
+        justify-content: center;
         gap: 4px;
+        height: 34px;
+        padding: 3px 7px;
+        box-sizing: border-box;
+        min-width: 0;
+      }
+      #overlay.full #status-container {
+        padding-right: 16px;
+      }
+      .status-field {
+        display: flex;
+        flex: none;
+        align-items: center;
+        gap: 2px;
+        padding: 0 5px;
+      }
+      .status-separator {
+        width: 1px;
+        height: 16px;
+        flex: none;
+        margin: 0 4px;
+        background: rgba(255,255,255,0.18);
+      }
+      #index-total, #mode-text {
+        color: #b2b2b2;
+        font-variant-numeric: tabular-nums;
       }
       #mode-text {
         pointer-events: none;
+        font-size: 12px;
+      }
+      #status-msg, #mode-text, .toolbar-full-actions, #window-buttons {
+        display: none;
+      }
+      #overlay.full #status-msg, #overlay.full #mode-text {
+        display: block;
+      }
+      #overlay.full .toolbar-full-actions, #overlay.full #window-buttons {
+        display: flex;
       }
       #status-msg {
         font: inherit;
@@ -180,6 +230,12 @@
         border: 0;
         border-radius: 3px;
         padding: 2px 4px;
+        flex: 1;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-size: 13px;
         cursor: pointer;
         user-select: none;
         -webkit-user-select: none;
@@ -240,49 +296,69 @@
         font-size: 12px;
       }
       #index-input, #scale-input {
-        min-width: 3ch;
-        box-sizing: content-box;
-        background: rgba(255,255,255,0.1);
-        color: white;
+        min-width: 2ch;
+        box-sizing: border-box;
+        background: transparent;
+        color: inherit;
         border: 1px solid transparent;
-        border-radius: 4px;
+        border-radius: 3px;
         text-align: right;
-        padding: 2px;
-        font-size: 14px;
-        outline: none;
+        padding: 3px 1px;
+        font-size: 13px;
+        font-variant-numeric: tabular-nums;
         font-family: inherit;
         transition: background 0.2s, border-color 0.2s;
       }
       #index-input {
         text-align: center;
+        width: calc(2ch + 6px);
+      }
+      #scale-input {
+        width: calc(3ch + 6px);
       }
       #index-input:hover, #scale-input:hover {
-        background: rgba(255,255,255,0.2);
+        background: rgba(255,255,255,0.07);
       }
       #index-input:focus, #scale-input:focus {
-        background: rgba(0,0,0,0.5);
-        border-color: #555;
+        background: rgba(255,255,255,0.12);
+        border-color: rgba(255,255,255,0.18);
       }
       #index-input:disabled, #scale-input:disabled {
-        background: rgba(255,255,255,0.05);
         color: #888;
         cursor: not-allowed;
       }
       #button-row {
         display: flex;
         align-items: center;
-        gap: 12px;
+        justify-content: center;
+        gap: 10px;
+        padding: 0 7px 4px;
+      }
+      #overlay.full #button-row {
+        justify-content: space-between;
       }
       #control-buttons {
         display: flex;
-        gap: 8px;
+        align-items: center;
+        gap: 10px;
+      }
+      .playback-controls, .toolbar-full-actions {
+        align-items: center;
+        gap: 4px;
+      }
+      .playback-controls {
+        display: flex;
+        gap: 2px;
       }
       .control-btn {
         background: none;
         border: none;
-        color: white;
+        color: inherit;
         cursor: pointer;
-        padding: 4px;
+        width: 32px;
+        height: 32px;
+        flex: none;
+        padding: 0;
         border-radius: 4px;
         display: flex;
         align-items: center;
@@ -290,21 +366,61 @@
         transition: background 0.2s;
       }
       .control-btn:hover:not(:disabled) {
-        background: rgba(255, 255, 255, 0.2);
+        background: rgba(255, 255, 255, 0.12);
       }
       .control-btn:disabled {
         cursor: not-allowed;
       }
       .control-btn svg {
-        width: 24px;
-        height: 24px;
+        width: 19px;
+        height: 19px;
         fill: currentColor;
       }
       #window-buttons {
-        display: flex;
-        gap: 8px;
-        border-left: 1px solid rgba(255, 255, 255, 0.2);
-        padding-left: 12px;
+        gap: 4px;
+      }
+      #toolbar-toggle {
+        width: 11px;
+        flex: none;
+        align-self: stretch;
+        padding: 0 3px 0 0;
+        border: 0;
+        background: transparent;
+        color: #b2b2b2;
+        display: grid;
+        place-items: center;
+        cursor: pointer;
+      }
+      #toolbar-toggle:hover {
+        color: #f0f0f0;
+      }
+      #toolbar-toggle svg {
+        width: 8px;
+        height: 10px;
+        fill: none;
+        stroke: currentColor;
+        stroke-width: 1.5;
+      }
+      #overlay.full #toolbar-toggle svg {
+        transform: scaleX(-1);
+      }
+      #toolbar-toggle:focus-visible, #overlay-drag-bar:focus-visible,
+      #transparency-drag-bar:focus-visible, #index-input:focus-visible,
+      #scale-input:focus-visible, .control-btn:focus-visible {
+        outline: 1px solid #ccc;
+        outline-offset: -1px;
+      }
+      @media (max-width: 550px) {
+        #overlay.full #button-row {
+          flex-wrap: wrap;
+          justify-content: center;
+          gap: 4px 8px;
+        }
+        #overlay.full #control-buttons {
+          flex-wrap: wrap;
+          justify-content: center;
+          gap: 4px 8px;
+        }
       }
       #command-prompt {
         position: fixed;
@@ -766,9 +882,241 @@
         color: #569cd6;
       }
 
-      .match-empty {
-        color: #999;
+.match-empty {
+        color: #888;
         text-align: center;
+      }
+
+      /* Popups share the floating toolbar's compact, grayscale appearance. */
+      #url-modal, #sort-modal, #help-modal, #match-modal, #file-menu, #command-prompt {
+        background: rgba(18,18,18,0.95);
+        color: #f0f0f0;
+        border: 1px solid rgba(255,255,255,0.18);
+        border-radius: 8px;
+        box-shadow: 0 4px 20px rgba(0,0,0,0.32);
+        box-sizing: border-box;
+        font-size: 13px;
+        line-height: 1.4;
+      }
+      #url-modal, #sort-modal, #help-modal, #match-modal {
+        max-width: calc(100vw - 24px);
+        max-height: calc(100dvh - 24px);
+      }
+      #url-modal, #sort-modal {
+        width: 360px;
+      }
+      #help-modal {
+        width: 760px;
+        height: auto;
+      }
+      #match-modal {
+        width: 600px;
+        height: auto;
+      }
+      #url-header, #sort-header, #help-header, #match-header {
+        padding: 6px 8px 6px 12px;
+        min-height: 40px;
+        box-sizing: border-box;
+        flex: none;
+        background: transparent;
+        border-bottom: 1px solid rgba(255,255,255,0.12);
+      }
+      #url-header h2, #sort-header h2, #help-header h2, #match-header h2 {
+        font-size: 14px;
+        font-weight: 500;
+        color: #f0f0f0;
+      }
+      #btn-close-url, #btn-close-sort, #btn-close-help, #btn-close-match {
+        width: 28px;
+        height: 28px;
+        border-radius: 4px;
+        font-family: inherit;
+        font-size: 20px;
+        color: #b2b2b2;
+      }
+      #btn-close-url:hover, #btn-close-sort:hover, #btn-close-help:hover, #btn-close-match:hover {
+        background: rgba(255,255,255,0.12);
+        color: #f0f0f0;
+      }
+      #url-content, #sort-content, #help-content, #match-content {
+        padding: 12px;
+        gap: 10px;
+        min-height: 0;
+        overflow: auto;
+      }
+      #sort-content {
+        max-height: 360px;
+      }
+      #url-input, .sort-select {
+        font: inherit;
+        font-size: 13px;
+        background: rgba(255,255,255,0.04);
+        border-color: rgba(255,255,255,0.18);
+        padding: 5px 8px;
+        color: #f0f0f0;
+      }
+      #url-input {
+        min-height: 80px;
+        height: 88px;
+      }
+      .sort-select {
+        min-width: 0;
+        height: 28px;
+      }
+      #url-input:focus, .sort-select:focus {
+        border-color: #aaa;
+      }
+      #btn-submit-url, .btn-apply-sort, .btn-add-sort, .btn-remove-sort {
+        font-family: inherit;
+        font-size: 13px;
+        font-weight: 400;
+        min-height: 28px;
+        padding: 4px 10px;
+        border: 1px solid rgba(255,255,255,0.18);
+        background: rgba(255,255,255,0.07);
+        color: #f0f0f0;
+      }
+      #btn-submit-url, .btn-apply-sort {
+        background: rgba(255,255,255,0.16);
+      }
+      #btn-submit-url:hover, .btn-apply-sort:hover, .btn-add-sort:hover, .btn-remove-sort:hover {
+        background: rgba(255,255,255,0.24);
+        border-color: rgba(255,255,255,0.3);
+      }
+      .btn-remove-sort {
+        width: 28px;
+        height: 28px;
+        padding: 0;
+      }
+      .sort-number {
+        width: 18px;
+        font-size: 12px;
+        color: #b2b2b2;
+        font-variant-numeric: tabular-nums;
+      }
+      .sort-actions {
+        gap: 8px;
+        margin-top: 2px;
+        padding-top: 10px;
+        border-color: rgba(255,255,255,0.12);
+      }
+      #help-content {
+        gap: 20px;
+      }
+      .help-section {
+        min-width: 0;
+      }
+      .help-section h3 {
+        margin-bottom: 10px;
+        padding-bottom: 6px;
+        font-size: 12px;
+        font-weight: 500;
+        text-transform: none;
+        letter-spacing: normal;
+        color: #b2b2b2;
+      }
+      .help-list {
+        gap: 8px;
+      }
+      .help-item {
+        gap: 8px;
+      }
+      .help-key {
+        background: rgba(255,255,255,0.07);
+        border-color: rgba(255,255,255,0.18);
+        padding: 2px 6px;
+        min-width: 36px;
+        max-width: 45%;
+        overflow-wrap: anywhere;
+        font: inherit;
+        font-size: 12px;
+        color: #f0f0f0;
+        box-shadow: none;
+      }
+      .help-key svg {
+        width: 15px;
+        height: 15px;
+      }
+      .help-desc {
+        min-width: 0;
+        margin-top: 1px;
+        font-size: 13px;
+        overflow-wrap: anywhere;
+      }
+      #help-version-info {
+        font-size: 12px;
+        overflow-wrap: anywhere;
+      }
+      #match-summary {
+        margin-bottom: 10px;
+        font-size: 12px;
+        overflow-wrap: anywhere;
+      }
+      #match-table {
+        font-size: 13px;
+        table-layout: fixed;
+      }
+      #match-table th, #match-table td {
+        padding: 6px 8px;
+        overflow-wrap: anywhere;
+        vertical-align: top;
+      }
+      #match-table th {
+        text-transform: none;
+        letter-spacing: normal;
+        font-size: 12px;
+        font-weight: 500;
+      }
+      #match-table th:first-child, #match-table td:first-child {
+        width: 64px;
+        font-family: inherit;
+        font-variant-numeric: tabular-nums;
+        color: #b2b2b2;
+      }
+      #file-menu {
+        min-width: 170px;
+        padding: 4px;
+        border-radius: 6px;
+      }
+      #file-menu button {
+        padding: 5px 8px;
+        line-height: 18px;
+      }
+      #file-menu button:hover:not(:disabled) {
+        background: rgba(255,255,255,0.12);
+      }
+      #file-menu-message {
+        margin: 4px 8px;
+        overflow-wrap: anywhere;
+      }
+      #command-prompt {
+        left: 50%;
+        bottom: 10px;
+        transform: translateX(-50%);
+        width: 536px;
+        max-width: calc(100vw - 16px);
+        padding: 6px 10px;
+        z-index: 2200;
+      }
+      #command-input {
+        font-family: inherit;
+        font-size: 13px;
+        line-height: 20px;
+        padding: 0;
+      }
+      :is(#url-modal, #sort-modal, #help-modal, #match-modal) :is(button, select):focus-visible,
+      #command-input:focus-visible {
+        outline: 1px solid #ccc;
+        outline-offset: -1px;
+      }
+      @media (max-width: 600px) {
+        #help-content {
+          gap: 16px;
+          flex-direction: column;
+        }
+        .help-section {
+          flex: none;
+        }
       }
     </style>
   </head>
@@ -795,31 +1143,34 @@
 
     <img id="viewer" src="" style="display: none;" />
     <canvas id="viewer-canvas" style="display: none;"></canvas>
-    <div id="overlay">
+    <div id="overlay" class="full">
       <div id="overlay-main">
         <div id="overlay-header">
-          <div id="overlay-drag-bar" title="Drag to move, double-click to collapse/expand"></div>
+          <div id="overlay-drag-bar" title="Drag to move, double-click to collapse/expand" role="button" tabindex="0" aria-label="Minimize toolbar" aria-expanded="true" aria-controls="overlay-body"></div>
         </div>
         <div id="overlay-body">
-          <div id="transparency-drag-bar" title="Drag up/down to change transparency">
+          <div id="transparency-drag-bar" title="Drag up/down to change transparency" role="slider" tabindex="0" aria-label="Toolbar opacity" aria-orientation="vertical" aria-valuemin="10" aria-valuemax="100" aria-valuenow="83">
             <div class="slider-track">
               <div id="transparency-fill" class="slider-fill"></div>
             </div>
           </div>
           <div id="overlay-content">
           <div id="status-container">
-          <span>[</span>
-          <input type="text" id="index-input" title="Current file index" value="0" disabled />
-          <span id="index-total">/0</span>
-          <span>]</span>
+          <label class="status-field">
+            <input type="text" id="index-input" title="Current file index" aria-label="Current file index" inputmode="numeric" value="0" disabled />
+            <span id="index-total">/ 0</span>
+          </label>
           <button type="button" id="status-msg" title="File actions" aria-haspopup="menu" aria-controls="file-menu" aria-expanded="false" disabled>No images</button>
-          <span>|</span>
-          <input type="text" id="scale-input" title="Scale percentage" value="100" disabled />
-          <span>%</span>
+          <span class="status-separator" aria-hidden="true"></span>
+          <label class="status-field">
+            <input type="text" id="scale-input" title="Scale percentage" aria-label="Zoom percentage" inputmode="decimal" value="100" disabled />
+            <span>%</span>
+          </label>
           <span id="mode-text">(shrink)</span>
         </div>
         <div id="button-row">
           <div id="control-buttons">
+          <div class="playback-controls">
           <button class="control-btn" id="btn-prev" title="Previous Image (Left Arrow)" disabled style="opacity: 0.3;">
           <svg viewBox="0 0 24 24"><path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/></svg>
         </button>
@@ -830,6 +1181,11 @@
         <button class="control-btn" id="btn-next" title="Next Image (Right Arrow)" disabled style="opacity: 0.3;">
           <svg viewBox="0 0 24 24"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg>
         </button>
+        <button class="control-btn" id="btn-slideshow" title="Play Slideshow" disabled style="opacity: 0.3;">
+          <svg viewBox="0 0 24 24"><path d="M4 6H2v14c0 1.1.9 2 2 2h14v-2H4V6zm16-4H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-8 12.5v-9l6 4.5-6 4.5z"/></svg>
+        </button>
+          </div>
+          <div class="toolbar-full-actions">
         <button class="control-btn" id="btn-zoom-mode" title="Zoom Mode (Shrink/Fit)" disabled style="opacity: 0.3;">
           <svg id="icon-zoom-fixed" viewBox="0 0 24 24" style="display: none;">
             <path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/>
@@ -842,9 +1198,6 @@
             <path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/>
             <rect x="9" y="9" width="6" height="6" />
           </svg>
-        </button>
-        <button class="control-btn" id="btn-slideshow" title="Play Slideshow" disabled style="opacity: 0.3;">
-          <svg viewBox="0 0 24 24"><path d="M4 6H2v14c0 1.1.9 2 2 2h14v-2H4V6zm16-4H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-8 12.5v-9l6 4.5-6 4.5z"/></svg>
         </button>
         <button class="control-btn" id="btn-open-file" title="Open File">
           <svg viewBox="0 0 24 24"><path d="M20 6h-8l-2-2H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2zm0 12H4V8h16v10z"/></svg>
@@ -867,6 +1220,7 @@
         <button class="control-btn" id="btn-help" title="Help (h)">
           <svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 17h-2v-2h2v2zm2.07-7.75l-.9.92C13.45 12.9 13 13.5 13 15h-2v-.5c0-1.1.45-2.1 1.17-2.83l1.24-1.26c.37-.36.59-.86.59-1.41 0-1.1-.9-2-2-2s-2 .9-2 2H8c0-2.21 1.79-4 4-4s4 1.79 4 4c0 .88-.36 1.68-.93 2.25z"/></svg>
         </button>
+          </div>
       </div>
         <div id="window-buttons">
           <button class="control-btn" id="btn-minimize" title="Minimize">
@@ -882,6 +1236,9 @@
         </div>
         </div>
         </div>
+<button id="toolbar-toggle" type="button" title="Show compact toolbar" aria-label="Show compact toolbar" aria-expanded="true" aria-controls="overlay-content">
+            <svg viewBox="0 0 10 12" aria-hidden="true"><path d="m3 2 4 4-4 4"></path></svg>
+          </button>
       </div>
       </div>
     </div>
@@ -916,7 +1273,7 @@
           <button id="btn-close-sort" title="Close (Esc)">&times;</button>
         </div>
         <div id="sort-content">
-          <div id="sort-list" style="display: flex; flex-direction: column; gap: 12px;">
+          <div id="sort-list" style="display: flex; flex-direction: column; gap: 8px;">
             <div class="sort-item">
               <span class="sort-number">1.</span>
               <select class="sort-select">
@@ -929,7 +1286,7 @@
                 <option value="modified">Modified (Oldest First)</option>
                 <option value="modified-desc">Modified (Newest First)</option>
               </select>
-              <div style="width: 32px;"></div>
+              <div style="width: 28px; flex: none;"></div>
             </div>
           </div>
           <div class="sort-actions">
@@ -1006,7 +1363,7 @@
                           <span class="help-desc">Zoom in / out</span>
                       </div>
                   </div>
-                  <div id="help-version-info" style="margin-top: 16px; color: #888; font-size: 0.85rem; text-align: left; border-top: 1px solid #333; padding-top: 8px;">
+                  <div id="help-version-info" style="margin-top: 10px; color: #888; text-align: left; border-top: 1px solid #333; padding-top: 6px;">
                       <!-- Dynamically populated version info -->
                   </div>
               </div>
@@ -1235,8 +1592,59 @@
         return rect.width / natWidth;
       }
 
+      let toolbarFull = true;
+      let toolbarMinimized = false;
+      let receivedInitialStatus = false;
+      let userSelectedToolbarMode = false;
+      const toolbarToggle = document.getElementById('toolbar-toggle');
+
+      function resizeToolbar(change) {
+        const before = overlay.getBoundingClientRect();
+        const atBottom = before.bottom >= window.innerHeight - 20;
+        change();
+        // Leave CSS anchoring intact until the user drags the toolbar.
+        if (!overlay.style.left && !overlay.style.top) return;
+        const after = overlay.getBoundingClientRect();
+        if (before.width === after.width && before.height === after.height) return;
+        const left = before.left + (before.width - after.width) / 2;
+        const top = atBottom ? before.bottom - after.height : before.top;
+        overlay.style.transform = 'none';
+        overlay.style.bottom = 'auto';
+        overlay.style.left = Math.max(0, Math.min(left, window.innerWidth - after.width)) + 'px';
+        overlay.style.top = Math.max(0, Math.min(top, window.innerHeight - after.height)) + 'px';
+      }
+
+      function setToolbarFull(full) {
+        closeFileMenu();
+        resizeToolbar(() => {
+          toolbarFull = full;
+          overlay.classList.toggle('full', full);
+          toolbarToggle.setAttribute('aria-expanded', String(full));
+          const label = full ? 'Show compact toolbar' : 'Show full toolbar';
+          toolbarToggle.title = label;
+          toolbarToggle.setAttribute('aria-label', label);
+        });
+        log(`Toolbar mode: ${full ? 'full' : 'compact'}`);
+      }
+
+      function setToolbarMinimized(minimized) {
+        closeFileMenu();
+        resizeToolbar(() => {
+          toolbarMinimized = minimized;
+          overlay.classList.toggle('minimized', minimized);
+          const handle = document.getElementById('overlay-drag-bar');
+          handle.setAttribute('aria-expanded', String(!minimized));
+          handle.setAttribute('aria-label', minimized ? 'Restore toolbar' : 'Minimize toolbar');
+        });
+        log(`Toolbar ${minimized ? 'minimized' : 'restored'} (${toolbarFull ? 'full' : 'compact'})`);
+      }
+
+      function sizeToolbarInput(input, minimum) {
+        input.style.width = `calc(${Math.max(minimum, input.value.length)}ch + 6px)`;
+      }
+
       function updateOverlay() {
-        let scaleVal = "?";
+        let scaleVal = currentStatusTotal === 0 ? "100" : "?";
         const natWidth = getViewerNaturalWidth();
         if (natWidth) {
           const realScale = getRealScale();
@@ -1257,17 +1665,16 @@
           document.getElementById('icon-zoom-fixed').style.display = 'block';
         }
 
-        statusMsg.innerText = currentStatusMsg;
-        if (document.activeElement !== indexInput) {
-          indexInput.value = String(currentStatusIndex);
-          indexInput.style.width = Math.max(3, String(Math.max(currentStatusIndex, currentStatusTotal)).length) + 'ch';
-        }
-        indexTotal.innerText = `/${Math.max(0, currentStatusTotal)}`;
-        if (document.activeElement !== scaleInput) {
-          scaleInput.value = scaleVal;
-          scaleInput.style.width = Math.max(3, String(scaleVal).length) + 'ch';
-        }
-        modeText.innerText = `(${modeStr})`;
+        resizeToolbar(() => {
+          statusMsg.innerText = currentStatusMsg;
+          statusMsg.title = currentFileName || currentStatusMsg;
+          if (document.activeElement !== indexInput) indexInput.value = String(currentStatusIndex);
+          sizeToolbarInput(indexInput, 2);
+          indexTotal.innerText = `/ ${Math.max(0, currentStatusTotal)}`;
+          if (document.activeElement !== scaleInput) scaleInput.value = scaleVal;
+          sizeToolbarInput(scaleInput, 3);
+          modeText.innerText = `(${modeStr})`;
+        });
       }
 
       viewer.addEventListener('load', () => {
@@ -1286,45 +1693,32 @@
         
         const rect = overlay.getBoundingClientRect();
         
-        let currentLeft = overlay.style.left ? parseFloat(overlay.style.left) : rect.left;
-        let currentTop = overlay.style.top ? parseFloat(overlay.style.top) : rect.top;
-        
-        let newLeft = currentLeft;
-        let newTop = currentTop;
-        
-        // Vertical border enforcement (pushing and following)
-        if (newTop + rect.height >= window.innerHeight) {
-          newTop = window.innerHeight - rect.height;
-        }
-        if (newTop <= 0) {
-          newTop = 0;
-        }
-        
-        // Horizontal visibility enforcement
-        let isOffLeft = rect.right <= 0;
-        let isOffRight = rect.left >= window.innerWidth;
-        
-        if (isOffLeft) {
-          newLeft = 0;
-        } else if (isOffRight) {
-          newLeft = window.innerWidth - rect.width;
-        }
-        
-        if (newLeft !== currentLeft || newTop !== currentTop) {
-          if (newLeft !== currentLeft && !overlay.style.left) {
-            overlay.style.transform = 'none';
-            overlay.style.left = newLeft + 'px';
-          } else if (overlay.style.left) {
-            overlay.style.left = newLeft + 'px';
-          }
-          
+        const newLeft = Math.max(0, Math.min(rect.left, window.innerWidth - rect.width));
+        const newTop = Math.max(0, Math.min(rect.top, window.innerHeight - rect.height));
+        if (newLeft !== rect.left || newTop !== rect.top) {
+          overlay.style.transform = 'none';
+          overlay.style.left = newLeft + 'px';
           overlay.style.bottom = 'auto';
           overlay.style.top = newTop + 'px';
         }
       });
 
-      scaleInput.addEventListener('input', (e) => {
-        e.target.style.width = Math.max(3, e.target.value.length) + 'ch';
+      [indexInput, scaleInput].forEach(input => input.addEventListener('input', () => {
+        resizeToolbar(() => sizeToolbarInput(input, input === indexInput ? 2 : 3));
+      }));
+
+      toolbarToggle.addEventListener('click', () => {
+        userSelectedToolbarMode = true;
+        setToolbarFull(!toolbarFull);
+      });
+      toolbarToggle.addEventListener('keydown', event => {
+        event.stopPropagation();
+      });
+      document.getElementById('button-row').addEventListener('keydown', event => {
+        // Let the focused button activate once, without also issuing the global pause shortcut.
+        if ((event.key === ' ' || event.key === 'Enter') && event.target.closest('button')) {
+          event.stopPropagation();
+        }
       });
 
       scaleInput.addEventListener('keydown', (e) => {
@@ -1380,12 +1774,20 @@
       let isDraggingTransparency = false;
       let overlayDragOffsetX, overlayDragOffsetY;
       let startTransparencyY = 0;
-      let startOpacity = 0.25;
-      let currentOverlayOpacity = 0.25;
+      let startOpacity = 0.83;
+      let currentOverlayOpacity = 0.83;
       const dragBar = document.getElementById('overlay-drag-bar');
       const transparencyDragBar = document.getElementById('transparency-drag-bar');
 
+      function setOverlayOpacity(value) {
+        currentOverlayOpacity = Math.max(0.1, Math.min(value, 1.0));
+        overlay.style.background = `rgba(18, 18, 18, ${currentOverlayOpacity})`;
+        document.getElementById('transparency-fill').style.height = `${currentOverlayOpacity * 100}%`;
+        transparencyDragBar.setAttribute('aria-valuenow', String(Math.round(currentOverlayOpacity * 100)));
+      }
+
       transparencyDragBar.addEventListener('mousedown', (e) => {
+        if (e.button !== 0) return;
         isDraggingTransparency = true;
         
         // Allow clicking anywhere on the bar to immediately set transparency
@@ -1395,12 +1797,7 @@
         let newOpacity = clickY / rect.height;
         newOpacity = Math.max(0.1, Math.min(newOpacity, 1.0));
         
-        currentOverlayOpacity = newOpacity;
-        overlay.style.background = `rgba(0, 0, 0, ${newOpacity})`;
-        const transparencyFill = document.getElementById('transparency-fill');
-        if (transparencyFill) {
-          transparencyFill.style.height = `${newOpacity * 100}%`;
-        }
+        setOverlayOpacity(newOpacity);
 
         startTransparencyY = e.clientY;
         startOpacity = currentOverlayOpacity;
@@ -1409,10 +1806,8 @@
       });
 
       dragBar.addEventListener('mousedown', (e) => {
+        if (e.button !== 0) return;
         isDraggingOverlay = true;
-        
-        // Disable animation class while dragging
-        overlay.classList.remove('animating');
         
         const rect = overlay.getBoundingClientRect();
         overlayDragOffsetX = e.clientX - rect.left;
@@ -1428,6 +1823,8 @@
       });
 
       window.addEventListener('mouseup', () => {
+        if (isDraggingTransparency) log(`Toolbar opacity: ${Math.round(currentOverlayOpacity * 100)}%`);
+        if (isDraggingOverlay) log(`Toolbar moved: left=${overlay.style.left}, top=${overlay.style.top}`);
         isDraggingOverlay = false;
         isDraggingTransparency = false;
         isDragging = false;
@@ -1444,12 +1841,7 @@
           // Bound to [0.1, 1.0] so it's never completely invisible
           newOpacity = Math.max(0.1, Math.min(newOpacity, 1.0));
           
-          currentOverlayOpacity = newOpacity;
-          overlay.style.background = `rgba(0, 0, 0, ${newOpacity})`;
-          const transparencyFill = document.getElementById('transparency-fill');
-          if (transparencyFill) {
-            transparencyFill.style.height = `${newOpacity * 100}%`;
-          }
+          setOverlayOpacity(newOpacity);
           return;
         }
 
@@ -1484,6 +1876,20 @@
 
         // Apply scroll delta natively
         window.scrollBy(walkX, walkY);
+      });
+
+      transparencyDragBar.addEventListener('keydown', event => {
+        event.stopPropagation();
+        const values = {
+          ArrowUp: currentOverlayOpacity + 0.05,
+          ArrowDown: currentOverlayOpacity - 0.05,
+          Home: 0.1,
+          End: 1.0
+        };
+        if (event.key in values) {
+          event.preventDefault();
+          setOverlayOpacity(values[event.key]);
+        }
       });
 
       // Mouse Wheel to Zoom
@@ -2011,147 +2417,37 @@
       document.getElementById('btn-close').addEventListener('click', () => invoke('send_command', { cmd: 'q' }));
 
       document.getElementById('overlay-drag-bar').addEventListener('dblclick', () => {
-        const content = document.getElementById('overlay-content');
-        const overlayRect = overlay.getBoundingClientRect();
-        
-        // Define "at the bottom" as its bottom border being within 20px of the window's bottom
-        const isAtBottom = overlayRect.bottom >= window.innerHeight - 20;
-        
-        // Lock dimensions explicitly so CSS transition can animate them smoothly
-        overlay.style.width = overlayRect.width + 'px';
-        overlay.style.height = overlayRect.height + 'px';
-        
-        // Force the browser to register the exact pixel start coordinates
-        overlay.style.left = overlayRect.left + 'px';
-        overlay.style.top = overlayRect.top + 'px';
-        overlay.style.bottom = 'auto';
-        overlay.style.transform = 'none';
-        
-        // Trigger a reflow so the browser knows the starting state for the transition
-        void overlay.offsetWidth;
-        
-        // Enable animation class right before changing sizes
-        overlay.classList.add('animating');
-
-        if (content.style.display === 'none') {
-          // Expanding
-          content.style.display = 'flex';
-          transparencyDragBar.style.display = 'flex';
-          
-          // After expanding, content size changes. We need to measure it.
-          // Temporarily set position to get dimensions properly
-          const originalTop = overlay.style.top;
-          const originalBottom = overlay.style.bottom;
-          const originalTransform = overlay.style.transform;
-          const originalWidth = overlay.style.width;
-          const originalHeight = overlay.style.height;
-          
-          overlay.style.top = 'auto';
-          overlay.style.bottom = 'auto';
-          overlay.style.transform = 'none';
-          overlay.style.width = 'auto';
-          overlay.style.height = 'auto';
-          
-          const newRect = overlay.getBoundingClientRect();
-          
-          // Restore style so we can calculate correct offsets and animate TO them
-          overlay.style.top = originalTop;
-          overlay.style.bottom = originalBottom;
-          overlay.style.transform = originalTransform;
-          overlay.style.width = originalWidth;
-          overlay.style.height = originalHeight;
-
-          const widthDiff = newRect.width - overlayRect.width;
-          
-          let newLeft = overlayRect.left - widthDiff / 2;
-          let newTop;
-          
-          if (isAtBottom) {
-            // Expand upwards, keep bottom center aligned
-            newTop = overlayRect.bottom - newRect.height;
-          } else {
-            // Expand downwards, keep top center aligned
-            newTop = overlayRect.top;
-          }
-          
-          // Constrain to window
-          newLeft = Math.max(0, Math.min(newLeft, window.innerWidth - newRect.width));
-          newTop = Math.max(0, Math.min(newTop, window.innerHeight - newRect.height));
-          
-          // Trigger a reflow
-          void overlay.offsetWidth;
-          
-          // Now apply target dimensions for the animation
-          overlay.style.width = newRect.width + 'px';
-          overlay.style.height = newRect.height + 'px';
-          overlay.style.left = newLeft + 'px';
-          overlay.style.top = newTop + 'px';
-          
-        } else {
-          // Collapsing
-          // We can't set display to none immediately if we want to animate height/width smoothly.
-          // Instead, we just measure what it WILL be.
-          const originalTop = overlay.style.top;
-          const originalBottom = overlay.style.bottom;
-          const originalTransform = overlay.style.transform;
-          const originalWidth = overlay.style.width;
-          const originalHeight = overlay.style.height;
-          
-          content.style.display = 'none';
-          transparencyDragBar.style.display = 'none';
-          
-          overlay.style.top = 'auto';
-          overlay.style.bottom = 'auto';
-          overlay.style.transform = 'none';
-          overlay.style.width = 'auto';
-          overlay.style.height = 'auto';
-          
-          const newRect = overlay.getBoundingClientRect();
-          
-          // Revert so we can animate
-          content.style.display = 'flex';
-          transparencyDragBar.style.display = 'flex';
-          overlay.style.top = originalTop;
-          overlay.style.bottom = originalBottom;
-          overlay.style.transform = originalTransform;
-          overlay.style.width = originalWidth;
-          overlay.style.height = originalHeight;
-          
-          const widthDiff = overlayRect.width - newRect.width;
-
-          let newLeft = overlayRect.left + widthDiff / 2;
-          let newTop;
-
-          if (isAtBottom) {
-            // Collapse downwards, keep bottom center aligned
-            newTop = overlayRect.bottom - newRect.height;
-          } else {
-            // Collapse upwards, keep top center aligned
-            newTop = overlayRect.top;
-          }
-          
-          // Constrain to window
-          newLeft = Math.max(0, Math.min(newLeft, window.innerWidth - newRect.width));
-          newTop = Math.max(0, Math.min(newTop, window.innerHeight - newRect.height));
-          
-          // Reflow
-          void overlay.offsetWidth;
-          
-          // Animate!
-          overlay.style.width = newRect.width + 'px';
-          overlay.style.height = newRect.height + 'px';
-          overlay.style.left = newLeft + 'px';
-          overlay.style.top = newTop + 'px';
-          
-          // Hide the content at the end of the transition
-          setTimeout(() => {
-            if (overlay.style.width === newRect.width + 'px') { // ensure we didn't double click again
-              content.style.display = 'none';
-              transparencyDragBar.style.display = 'none';
-            }
-          }, 300);
+        setToolbarMinimized(!toolbarMinimized);
+      });
+      dragBar.addEventListener('keydown', event => {
+        event.stopPropagation();
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          setToolbarMinimized(!toolbarMinimized);
         }
       });
+
+      function updateImageControls() {
+        const empty = currentStatusTotal === 0;
+        document.getElementById('empty-state').style.display = empty ? 'flex' : 'none';
+        if (empty) {
+          viewer.style.display = 'none';
+          viewerCanvas.style.display = 'none';
+          currentImagePath = null;
+        }
+        document.querySelectorAll('.control-btn').forEach(btn => {
+          const utility = ['btn-cmd', 'btn-open-file', 'btn-open-url', 'btn-help',
+            'btn-minimize', 'btn-maximize', 'btn-close'].includes(btn.id);
+          btn.disabled = empty && !utility;
+          btn.style.opacity = btn.disabled ? '0.3' : '1.0';
+        });
+        indexInput.disabled = empty;
+        scaleInput.disabled = empty;
+      }
+
+      // Initialize the empty layout locally: startup status may precede event registration.
+      updateImageControls();
+      updateOverlay();
 
       // Initialize listeners and start engine
       async function init() {
@@ -2255,34 +2551,17 @@
           currentStatusIndex = event.payload.current_index;
           currentStatusTotal = event.payload.total;
           currentStatusMsg = event.payload.display_text;
+          if (!receivedInitialStatus) {
+            receivedInitialStatus = true;
+            if (!userSelectedToolbarMode) setToolbarFull(currentStatusTotal === 0);
+            log(`Initial file list: ${currentStatusTotal} image(s)`);
+          }
           const nextSource = event.payload.source_url ?? null;
           if (nextSource !== currentFileSource) closeFileMenu();
           currentFileName = event.payload.file_name ?? null;
           currentFileSource = nextSource;
           statusMsg.disabled = !currentFileName || !currentFileSource || currentStatusTotal === 0;
-          if (currentStatusTotal === 0) currentImagePath = null;
-
-          if (currentStatusTotal === 0) {
-            document.getElementById('empty-state').style.display = 'flex';
-            document.getElementById('viewer').style.display = 'none';
-            document.getElementById('viewer-canvas').style.display = 'none';
-            
-            document.querySelectorAll('.control-btn:not(#btn-cmd):not(#btn-open-file):not(#btn-open-url):not(#btn-help):not(#btn-minimize):not(#btn-maximize):not(#btn-close)').forEach(btn => {
-              btn.disabled = true;
-              btn.style.opacity = '0.3';
-            });
-            document.getElementById('index-input').disabled = true;
-            document.getElementById('scale-input').disabled = true;
-          } else {
-            document.getElementById('empty-state').style.display = 'none';
-            
-            document.querySelectorAll('.control-btn').forEach(btn => {
-              btn.disabled = false;
-              btn.style.opacity = '1.0';
-            });
-            document.getElementById('index-input').disabled = false;
-            document.getElementById('scale-input').disabled = false;
-          }
+          updateImageControls();
 
           if (event.payload.playback_state === "Playing") {
             document.getElementById('icon-play').style.display = 'none';

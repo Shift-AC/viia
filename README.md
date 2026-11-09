@@ -77,6 +77,8 @@ The `viia` program treats each image file as an animation (static images are sim
 
     On Windows, the GUI keeps the display and system awake while a custom animation started with `a` is playing, including slideshows of static images. Pausing, a playback error, or opening a new file list releases the request; the default image loop does not keep the display awake.
 
+    The GUI starts with a compact floating toolbar when images are supplied: file index and zoom above the playback buttons. With no images, it starts with the full toolbar so opening controls are immediately available. Use the right-side chevron to switch between modes for file actions, zoom mode, opening files or URLs, sorting, commands, help, and window controls. Drag the top handle to move either toolbar, double-click it to minimize or restore it, and drag the left opacity track to adjust transparency.
+
     In its implementation, `viia` designed its TUI and GUI to be as *dumb* as possible: they do minimal processing other than handling the UI. The real display work is typically done by the internal shell. The UI simply take user operations, generate command lines for the internal shell to execute, and renders the outputs on the UI. Therefore, the runtime command format is shared across UI modes, though individual modes may display output differently or handle some UI-native actions locally.
     
 ## Animation specification format
