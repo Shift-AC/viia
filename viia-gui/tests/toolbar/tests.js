@@ -40,6 +40,19 @@
     toolbarTest.calls.length = 0;
   };
   const tests = [
+    ['Native context menus are suppressed across viewer, controls, and popups', () => {
+      for (const target of [document.body, $('viewer'), $('viewer-canvas'), $('btn-pause'),
+        $('toolbar-toggle'), $('index-input'), $('url-input'), $('command-input'), $('file-menu')]) {
+        for (const button of [2, 0]) {
+          const event = new MouseEvent('contextmenu', { bubbles: true, cancelable: true, button });
+          check(!target.dispatchEvent(event) && event.defaultPrevented, 'Mouse and keyboard context menus must be canceled');
+        }
+      }
+      check(toolbarTest.calls.length === 0, 'Suppressing context menus must not send backend commands');
+      $('toolbar-toggle').click();
+      $('status-msg').click();
+      check(visible('file-menu'), 'The app file-action menu must still open on left click');
+    }],
     ['Empty startup initializes full controls and local spacing even without status metadata', async () => {
       for (const startup of ['empty', 'missing']) {
         const frame = await startupFrame(startup);

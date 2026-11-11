@@ -1437,6 +1437,9 @@
     </div>
 
     <script>
+      // Suppress the WebView's native menu for mouse and keyboard context-menu requests.
+      document.addEventListener('contextmenu', event => event.preventDefault(), { capture: true });
+
       const { invoke } = window.__TAURI__.core;
       const { listen } = window.__TAURI__.event;
       const { getCurrentWindow } = window.__TAURI__.window;
