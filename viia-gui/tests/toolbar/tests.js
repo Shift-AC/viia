@@ -95,6 +95,43 @@
       key($('scale-input'), 'Enter');
       check(toolbarTest.calls.some(call => call.cmd === 'z 1.25'), 'Zoom edit command');
     }],
+    ['Compact window controls stack before expand and preserve window actions in both modes', () => {
+      const ids = ['btn-minimize', 'btn-maximize', 'btn-close'];
+      const commands = ['window.minimize', 'window.maximize', 'send_command'];
+      const content = $('overlay-content').getBoundingClientRect();
+      const toggle = $('toolbar-toggle').getBoundingClientRect();
+      const playback = $('btn-pause').getBoundingClientRect();
+      const rects = ids.map(id => $(id).getBoundingClientRect());
+      for (let i = 0; i < ids.length; i++) {
+        check(visible(ids[i]) && !$(ids[i]).disabled, `${ids[i]} must be available in compact mode`);
+        near(rects[i].width, 24, 'Compact window button width');
+        near(rects[i].height, 20, 'Compact window button height');
+        check(rects[i].width < playback.width && rects[i].height < playback.height, 'Window controls must be smaller than playback');
+        check(rects[i].left >= playback.right && rects[i].right <= toggle.left, 'Window controls must sit before expand, after playback');
+        check(rects[i].top >= content.top && rects[i].bottom <= content.bottom, 'Window controls must fit both rows');
+        if (i) {
+          near(rects[i].left, rects[0].left, 'Window column alignment');
+          check(rects[i].top >= rects[i - 1].bottom, 'Window controls must stack without overlap');
+        }
+      }
+      for (const full of [false, true]) {
+        if (full) $('toolbar-toggle').click();
+        for (let i = 0; i < ids.length; i++) {
+          $(ids[i]).click();
+          check(toolbarTest.calls.at(-1)?.command === commands[i], `${ids[i]} must preserve its existing action`);
+        }
+        check(toolbarTest.calls.at(-1)?.cmd === 'q', 'Close must use the terminal quit command');
+        if (full) {
+          const first = $(ids[0]).getBoundingClientRect();
+          const last = $(ids[2]).getBoundingClientRect();
+          near(first.top, last.top, 'Full window controls stay horizontal');
+          near(first.width, 32, 'Full window button width');
+        }
+      }
+      toolbarTest.setMeta({ current_index: 0, total: 0, file_name: null, source_url: null });
+      $('toolbar-toggle').click();
+      check(ids.every(id => visible(id) && !$(id).disabled), 'Empty compact state must keep window controls enabled');
+    }],
     ['Large indices resize compact mode and restore its width', () => {
       const before = $('overlay').offsetWidth;
       toolbarTest.setMeta({ current_index: 12345, total: 12480 });
